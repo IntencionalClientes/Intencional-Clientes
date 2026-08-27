@@ -86,10 +86,15 @@ body{background:var(--surface);overflow-x:visible;overflow-y:visible}
 .cat-card.agotado{opacity:.62}
 .cat-card-vidriera{
   aspect-ratio:3/4;display:flex;align-items:center;justify-content:center;background:var(--subtle);position:relative;
-  width:100%;border:none;padding:0;margin:0;font:inherit;text-align:inherit;cursor:pointer;
-  -webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;
+  width:100%;border:none;padding:10px;margin:0;font:inherit;text-align:inherit;cursor:pointer;
+  -webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;box-sizing:border-box;
 }
-.cat-card-vidriera .cat-card-img-principal{width:100%;height:100%;object-fit:cover}
+/* object-fit:contain (no "cover") a propósito: la uña real es más
+   angosta que el marco de la tarjeta (recorte al ras, no un cuadrado
+   perfecto), y con "cover" el navegador la agranda hasta tapar todo
+   el marco — recortando la punta y la base. "Contain" siempre
+   muestra la uña completa, entre o no exactamente en el marco. */
+.cat-card-vidriera .cat-card-img-principal{width:100%;height:100%;object-fit:contain}
 .cat-card-vidriera.sin-foto{padding:14px}
 .cat-card-estado{position:absolute;top:8px;right:8px}
 .cat-card-frasco-mini{
@@ -198,8 +203,8 @@ body{background:var(--surface);overflow-x:visible;overflow-y:visible}
    para cerrar). */
 .cat-detalle{display:flex;flex-direction:column}
 .cat-detalle-carrusel{position:relative;border-radius:var(--radius);overflow:hidden;background:var(--subtle)}
-.cat-detalle-img{aspect-ratio:3/4;display:flex;align-items:center;justify-content:center;touch-action:pan-y}
-.cat-detalle-img img{width:100%;height:100%;object-fit:cover}
+.cat-detalle-img{aspect-ratio:3/4;display:flex;align-items:center;justify-content:center;touch-action:pan-y;padding:14px;box-sizing:border-box}
+.cat-detalle-img img{width:100%;height:100%;object-fit:contain}
 .cat-detalle-img .cat-nail-swatch{width:56%;height:auto}
 .cat-detalle-flecha{
   position:absolute;top:50%;transform:translateY(-50%);width:32px;height:32px;border-radius:50%;border:none;

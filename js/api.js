@@ -47,12 +47,12 @@ async function traerColores() {
 /* Crea el pedido reservando stock de forma atómica: si dos locales
    piden el último frasco al mismo tiempo, solo uno se queda con él
    y el otro recibe el error de "no queda stock" para avisarle. */
-async function crearPedidoB2B(local, telefono, contacto, observaciones, items) {
+async function crearPedidoB2B(local, telefono, contacto, observaciones, localidad, items) {
   var r = await rest('rpc/crear_pedido_b2b', {
     method: 'POST',
     body: JSON.stringify({
       p_local: local, p_telefono: telefono, p_contacto: contacto || '',
-      p_observaciones: observaciones || '',
+      p_observaciones: observaciones || '', p_localidad: localidad || '',
       p_items: items.map(function (it) { return { color_id: it.id, cantidad: it.cantidad }; })
     })
   });

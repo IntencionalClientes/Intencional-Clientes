@@ -5,13 +5,25 @@
    productos, panel de pedido y el formulario de datos del local.
    ═══════════════════════════════════════════════════════════ */
 
-body{background:var(--surface)}
+/* estilo.css pone overflow-x:hidden en html Y body para evitar
+   scroll horizontal. En Chrome eso convierte a <body> en su propio
+   contenedor de scroll (aunque nunca llegue a usarlo), y con eso
+   TODO el position:sticky de adentro deja de pegarse a nada — el
+   buscador, el header, el carrito. Se vuelve a poner "visible" en
+   los dos ejes de body: el que sigue recortando el ancho es html,
+   que ya alcanza solo para que no aparezca scroll horizontal. */
+body{background:var(--surface);overflow-x:visible;overflow-y:visible}
 
-/* ── Header ──────────────────────────────────────────────── */
+/* ── Header + buscador ────────────────────────────────────
+   Los dos viven juntos en un mismo bloque pegado arriba (sticky),
+   así el buscador queda siempre a la vista sin importar el scroll
+   ni el tamaño de pantalla, sin tener que calcular alturas. */
+.cat-top{position:sticky;top:0;z-index:80;background:var(--bg);border-bottom:1px solid var(--border)}
 .cat-header{
-  position:sticky;top:0;z-index:80;background:var(--bg);border-bottom:1px solid var(--border);
   display:flex;align-items:center;gap:18px;padding:12px 22px;flex-wrap:wrap;
 }
+.cat-buscador-bar{padding:0 22px 12px}
+.cat-buscador-bar .buscador{max-width:420px}
 .cat-marca{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .cat-marca img{width:34px;height:34px;object-fit:contain}
 .cat-marca-nombre{font-family:var(--display);font-size:18px;font-weight:600;line-height:1.1}
@@ -40,7 +52,8 @@ body{background:var(--surface)}
 .cat-shell{display:flex;align-items:flex-start;max-width:1400px;margin:0 auto;padding:20px 22px 60px;gap:20px}
 .cat-filtros{
   width:250px;flex-shrink:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);
-  box-shadow:var(--sombra);padding:16px;position:sticky;top:74px;
+  box-shadow:var(--sombra);padding:16px;position:sticky;top:calc(var(--cat-top-h, 115px) + 14px);
+  max-height:calc(100vh - var(--cat-top-h, 115px) - 28px);overflow-y:auto;
 }
 .cat-main{flex:1;min-width:0}
 .cat-filtros-grupo{margin-bottom:18px}
@@ -55,46 +68,47 @@ body{background:var(--surface)}
 .cat-filtros-limpiar{font-size:11.5px;color:var(--rose);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline}
 
 /* ── Cabecera del catálogo ───────────────────────────────── */
-.cat-cab-titulo{font-family:var(--display);font-size:24px;font-weight:600;margin:0}
-.cat-cab-sub{font-size:12.5px;color:var(--muted);margin-top:2px}
+.cat-cab-titulo{font-family:var(--display);font-size:26px;font-weight:600;margin:0;letter-spacing:.2px}
+.cat-cab-sub{font-family:var(--acento);font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:4px}
 .cat-cab-fila{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-.cat-orden{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
-.cat-orden select{width:auto}
 
-/* ── Pisos y grilla de colores ───────────────────────────── */
-.cat-piso{margin-bottom:28px}
-.cat-piso-titulo{
-  font-family:var(--acento);font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;
-  color:var(--muted);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);
-}
-.cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:14px}
+/* ── Grilla de colores ──────────────────────────────────────
+   Una sola grilla plana con todo lo que pasó los filtros — sin
+   agrupar por piso, que no le importa a quien está mirando el
+   catálogo. */
+.cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px}
 
 .cat-card{
   background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;
-  display:flex;flex-direction:column;box-shadow:var(--sombra);
+  display:flex;flex-direction:column;box-shadow:var(--sombra);transition:box-shadow .15s ease,transform .15s ease;
 }
+.cat-card:hover{box-shadow:var(--sombra-alta);transform:translateY(-1px)}
 .cat-card.agotado{opacity:.62}
 .cat-card-vidriera{
-  aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;background:var(--subtle);position:relative;
+  aspect-ratio:3/4;display:flex;align-items:center;justify-content:center;background:var(--subtle);position:relative;
+  width:100%;border:none;padding:0;margin:0;font:inherit;text-align:inherit;cursor:pointer;
+  -webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;
 }
-.cat-card-vidriera img{width:100%;height:100%;object-fit:contain;padding:6px}
-.cat-card-estado{position:absolute;top:7px;right:7px}
+.cat-card-vidriera .cat-card-img-principal{width:100%;height:100%;object-fit:cover}
+.cat-card-vidriera.sin-foto{padding:14px}
+.cat-card-estado{position:absolute;top:8px;right:8px}
+.cat-card-frasco-mini{
+  position:absolute;bottom:8px;left:8px;width:26px;height:34px;object-fit:contain;
+  background:rgba(255,255,255,.82);border-radius:6px;padding:3px;box-shadow:0 2px 6px rgba(0,0,0,.16);
+}
 
-/* ── Uña de muestra ───────────────────────────────────────────
-   Representación real del color (no un frasco inventado): una
-   uña pintada, con el mismo esmalte que la foto del producto.
-   Cuando hay foto de la botella, la uña aparece como una insignia
-   chica en la esquina; cuando todavía no hay foto cargada, la uña
-   se ve grande y sola como única representación del color. */
+/* ── Uña de muestra dibujada ────────────────────────────────
+   Solo aparece cuando un color todavía no tiene ninguna foto real
+   cargada (ni de uña ni de frasco): una representación fiel al
+   hex, para que el color nunca quede sin imagen. */
 .cat-nail-swatch{display:block;filter:drop-shadow(0 2px 3px rgba(0,0,0,.18))}
-.cat-card-vidriera .cat-nail-swatch{position:absolute;bottom:6px;left:6px;width:30px;height:auto}
-.cat-card-vidriera.sin-foto .cat-nail-swatch{position:static;width:52%;height:auto}
+.cat-card-vidriera.sin-foto .cat-nail-swatch{width:62%;height:auto}
 .cat-pedido-swatch.cat-nail-swatch-wrap{background:none;display:flex;align-items:center;justify-content:center}
 .cat-pedido-swatch.cat-nail-swatch-wrap .cat-nail-swatch{width:100%}
-.cat-card-cuerpo{padding:10px 11px 12px}
-.cat-card-codigo{font-family:var(--acento);font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted)}
-.cat-card-nombre{font-size:13.5px;font-weight:700;margin-top:1px;line-height:1.2;overflow-wrap:anywhere}
-.cat-card-tags{font-size:10.5px;color:var(--muted);margin-top:3px}
+.cat-card-cuerpo{padding:12px 13px 14px}
+.cat-card-codigo{font-family:var(--acento);font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--rose)}
+.cat-card-nombre{font-family:var(--display);font-size:16px;font-weight:600;margin-top:2px;line-height:1.22;overflow-wrap:anywhere}
+.cat-card-tags{font-family:var(--acento);font-size:9.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin-top:4px}
 .cat-card-pie{display:flex;align-items:center;justify-content:space-between;margin-top:9px;gap:6px}
 .cat-card-stock{font-size:10.5px;color:var(--ok);font-weight:600}
 .cat-card-stock.agotado{color:var(--danger)}
@@ -136,7 +150,11 @@ body{background:var(--surface)}
 .cat-pedido-vacio{text-align:center;color:var(--muted);padding:40px 10px;font-size:13px}
 .cat-pedido-fila{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
 .cat-pedido-fila:last-child{border-bottom:none}
-.cat-pedido-swatch{width:34px;height:34px;border-radius:8px;flex-shrink:0;border:1px solid rgba(0,0,0,.12)}
+.cat-pedido-swatch{
+  width:38px;height:38px;border-radius:8px;flex-shrink:0;border:1px solid rgba(0,0,0,.12);
+  background:var(--subtle);overflow:hidden;display:flex;align-items:center;justify-content:center;
+}
+.cat-pedido-swatch img{width:100%;height:100%;object-fit:contain}
 .cat-pedido-fila-info{flex:1;min-width:0}
 .cat-pedido-fila-codigo{font-size:12px;font-weight:700;color:var(--muted)}
 .cat-pedido-fila-nombre{font-size:13.5px;font-weight:600;overflow-wrap:anywhere}
@@ -156,6 +174,73 @@ body{background:var(--surface)}
 }
 .cat-ayuda-whatsapp-texto{flex:1;font-size:11.5px;color:var(--text2);line-height:1.4}
 
+/* ── Carrito flotante ─────────────────────────────────────── */
+/* Siempre en el mismo lugar, sin importar el scroll. En desktop
+   ya está el botón "Tu pedido" en el header (sticky); este botón
+   redondo es la versión mobile, pero funciona en cualquier ancho. */
+.cat-fab-carrito{
+  position:fixed;right:16px;bottom:16px;bottom:calc(16px + env(safe-area-inset-bottom));
+  width:52px;height:52px;border-radius:50%;border:none;background:var(--grad);color:#fff;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(0,0,0,.28);
+  cursor:pointer;z-index:150;-webkit-tap-highlight-color:transparent;
+}
+.cat-fab-carrito.oculto{display:none}
+.cat-fab-carrito .cat-badge{
+  position:absolute;top:-4px;right:-4px;background:var(--bg);color:var(--rose);border:2px solid var(--rose);
+  font-size:11px;font-weight:700;border-radius:20px;min-width:20px;height:20px;
+  display:flex;align-items:center;justify-content:center;padding:0 4px;
+}
+@media (min-width:961px){ .cat-fab-carrito{ display:none } .cat-fab-carrito.oculto{ display:none } }
+
+/* ── Ficha de detalle de un color ────────────────────────────
+   Imagen grande y deslizable, descripción y agregar-al-pedido con
+   cantidad, todo dentro del modal común (que ya trae su propia X
+   para cerrar). */
+.cat-detalle{display:flex;flex-direction:column}
+.cat-detalle-carrusel{position:relative;border-radius:var(--radius);overflow:hidden;background:var(--subtle)}
+.cat-detalle-img{aspect-ratio:3/4;display:flex;align-items:center;justify-content:center;touch-action:pan-y}
+.cat-detalle-img img{width:100%;height:100%;object-fit:cover}
+.cat-detalle-img .cat-nail-swatch{width:56%;height:auto}
+.cat-detalle-flecha{
+  position:absolute;top:50%;transform:translateY(-50%);width:32px;height:32px;border-radius:50%;border:none;
+  background:rgba(255,255,255,.88);color:var(--text);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18);
+}
+.cat-detalle-flecha.izq{left:9px;transform:translateY(-50%) rotate(180deg)}
+.cat-detalle-flecha.der{right:9px}
+.cat-detalle-puntos{display:flex;justify-content:center;gap:6px;margin-top:10px}
+.cat-detalle-punto{width:7px;height:7px;border-radius:50%;border:none;background:var(--border);padding:0;cursor:pointer}
+.cat-detalle-punto.activo{background:var(--rose);width:16px;border-radius:5px}
+.cat-detalle-etiq{
+  text-align:center;font-family:var(--acento);font-size:9.5px;font-weight:700;letter-spacing:1.2px;
+  text-transform:uppercase;color:var(--muted);margin-top:7px;
+}
+.cat-detalle-codigo{font-family:var(--acento);font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--rose);margin-top:16px}
+.cat-detalle-nombre{font-family:var(--display);font-size:21px;font-weight:600;margin:2px 0 8px;line-height:1.15}
+.cat-detalle-desc{font-size:13.5px;color:var(--text2);line-height:1.55;margin-bottom:14px}
+.cat-detalle-desc-generica{font-family:var(--acento);font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+.cat-detalle-cantidad{margin-bottom:14px}
+.cat-detalle-stepper{width:fit-content;margin-top:4px}
+.cat-detalle-stepper button{width:30px;height:30px}
+.cat-detalle-stepper span{min-width:24px;font-size:14px}
+.cat-detalle-sinstock{
+  display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--danger);
+  background:var(--danger-bg);border-radius:var(--radius-sm);padding:9px 11px;margin-bottom:4px;
+}
+.cat-detalle-agregar{margin-top:2px}
+
+/* ── Cómo comprar ─────────────────────────────────────────── */
+/* .fila-titulo/.fila-sub del panel están pensadas para una fila de
+   lista de una sola línea (cortan con "…"); acá el texto es un
+   párrafo que tiene que poder ocupar varias líneas sin cortarse.
+   paso-envio es flex, y sin min-width:0 en su columna de texto el
+   navegador le da a esa columna un ancho mínimo "auto" que puede
+   superar el disponible — como html tiene overflow-x:hidden, ese
+   sobrante no se ve scrolleable: queda directamente cortado. */
+.paso-envio > div:last-child{min-width:0}
+.paso-titulo{font-family:var(--display);font-size:15.5px;font-weight:600}
+.paso-texto{font-size:13px;color:var(--muted);margin-top:3px;line-height:1.55;overflow-wrap:break-word}
+
 /* ── Confirmación ─────────────────────────────────────────── */
 .cat-confirmacion{text-align:center;padding:30px 10px}
 .cat-confirmacion-ic{
@@ -167,7 +252,16 @@ body{background:var(--surface)}
 /* ── Móvil ───────────────────────────────────────────────── */
 .cat-filtros-toggle{display:none}
 @media (max-width:960px){
-  .cat-shell{flex-direction:column;padding:14px 14px 60px}
+  .cat-header{padding:10px 14px;gap:10px}
+  .cat-marca-sub{display:none}
+  .cat-btn-carrito{display:none}   /* en mobile el carrito vive en el botón flotante, siempre a mano */
+  .cat-nav{width:100%;margin-left:0;gap:8px;order:3}
+  .cat-nav-item{flex:1;border:1px solid var(--border);text-align:center;padding:9px 6px}
+  .cat-header-espaciador{display:none}
+  .cat-buscador-bar{padding:0 14px 10px}
+  .cat-buscador-bar .buscador{max-width:none}
+
+  .cat-shell{flex-direction:column;padding:14px 14px calc(90px + env(safe-area-inset-bottom))}
   .cat-filtros{
     position:static;width:100%;display:none;
   }
@@ -175,7 +269,15 @@ body{background:var(--surface)}
   .cat-filtros-toggle{
     display:flex;align-items:center;gap:8px;width:100%;justify-content:center;margin-bottom:12px;
   }
-  .cat-grid{grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:10px}
+  .cat-grid{grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:10px}
+  .cat-card-nombre{font-size:13px}
+  .cat-card-agregar{width:34px;height:34px}
+  .cat-card-stepper button{width:26px;height:26px}
   .cat-pedido-panel{width:100%}
-  .cat-nav{display:none}
+  .cat-pedido-pie{padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+  .cat-paginacion button{width:38px;height:38px}
+}
+
+@media (max-width:380px){
+  .cat-grid{grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:8px}
 }

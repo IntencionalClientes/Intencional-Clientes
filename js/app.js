@@ -15,7 +15,6 @@ var _catBusca = '';
 var _catColecciones = {};      // colección -> true si está tildada
 var _catAcabados = {};
 var _catSoloDisponibles = false;
-var _catOrden = 'codigo';      // codigo | nombre
 var _catPagina = 1;
 var CAT_POR_PAGINA = 40;
 var _catFiltrosVisibles = false;
@@ -24,7 +23,7 @@ var _catVista = 'catalogo';    // catalogo | comprar
 var _catConfirmacion = null;   // { numero } después de hacer el pedido
 var _catEnviando = false;
 
-var _catForm = { local: '', telefono: '', contacto: '', observaciones: '' };
+var _catForm = { local: '', telefono: '', localidad: '', contacto: '', observaciones: '' };
 
 document.addEventListener('DOMContentLoaded', iniciarCatalogo);
 
@@ -70,18 +69,21 @@ async function cargarColores(primeraVez) {
 /* ── Armado de la pantalla (una sola vez) ────────────────── */
 function renderShell() {
   document.body.innerHTML =
-    '<header class="cat-header">' +
-      '<div class="cat-marca"><img src="' + LOGO_INTENCIONAL + '" alt=""/>' +
-        '<div><div class="cat-marca-nombre">Intencional</div><div class="cat-marca-sub">Esmaltes · Catálogo B2B</div></div>' +
-      '</div>' +
-      '<nav class="cat-nav">' +
-        '<button class="cat-nav-item" id="cat-tab-catalogo" onclick="catIrA(\'catalogo\')" aria-current="page">Catálogo</button>' +
-        '<button class="cat-nav-item" id="cat-tab-comprar" onclick="catIrA(\'comprar\')">Cómo comprar</button>' +
-      '</nav>' +
-      '<div class="cat-header-espaciador"></div>' +
-      '<button class="cat-btn-carrito" onclick="catAbrirPedido()">' + ic('cart', 17) +
-        '<span>Tu pedido</span><span class="cat-badge" id="cat-badge">0</span></button>' +
-    '</header>' +
+    '<div class="cat-top" id="cat-top">' +
+      '<header class="cat-header">' +
+        '<div class="cat-marca"><img src="' + LOGO_INTENCIONAL + '" alt=""/>' +
+          '<div><div class="cat-marca-nombre">Intencional</div><div class="cat-marca-sub">Esmaltes · Catálogo B2B</div></div>' +
+        '</div>' +
+        '<nav class="cat-nav">' +
+          '<button class="cat-nav-item" id="cat-tab-catalogo" onclick="catIrA(\'catalogo\')" aria-current="page">Catálogo</button>' +
+          '<button class="cat-nav-item" id="cat-tab-comprar" onclick="catIrA(\'comprar\')">Cómo comprar</button>' +
+        '</nav>' +
+        '<div class="cat-header-espaciador"></div>' +
+        '<button class="cat-btn-carrito" onclick="catAbrirPedido()">' + ic('cart', 17) +
+          '<span>Tu pedido</span><span class="cat-badge" id="cat-badge">0</span></button>' +
+      '</header>' +
+      '<div class="cat-buscador-bar" id="cat-buscador-bar"></div>' +
+    '</div>' +
     '<div class="cat-shell">' +
       '<button class="btn btn-secundario cat-filtros-toggle" onclick="catAlternarFiltros()">' + ic('settings', 15) + ' Filtros</button>' +
       '<aside class="cat-filtros" id="cat-filtros"></aside>' +
@@ -89,21 +91,54 @@ function renderShell() {
     '</div>' +
     '<div class="cat-pedido-overlay" id="cat-overlay" onclick="catCerrarPedido()"></div>' +
     '<aside class="cat-pedido-panel" id="cat-panel"></aside>' +
+    '<button class="cat-fab-carrito" id="cat-fab" onclick="catAbrirPedido()" aria-label="Ver tu pedido">' +
+      ic('cart', 20) + '<span class="cat-badge" id="cat-fab-badge">0</span></button>' +
+    '<div class="modal" id="modal"></div>' +
     '<div class="toast" id="toast"></div>';
 
+  renderBuscadorBar();
   renderFiltros();
   renderPedido();
+  ajustarAlturaTop();
+  window.addEventListener('resize', ajustarAlturaTop);
+}
+
+/* El bloque fijo de arriba (header + buscador) no tiene una altura
+   fija: cambia según ancho de pantalla y tamaño de fuente. El
+   panel de filtros necesita saber esa altura real para pegarse
+   justo debajo, sin superponerse ni dejar un hueco. */
+function ajustarAlturaTop() {
+  var top = porId('cat-top');
+  if (!top) return;
+  document.documentElement.style.setProperty('--cat-top-h', top.getBoundingClientRect().height + 'px');
+}
+
+/* La búsqueda vive en su propia barra, fuera de los filtros
+   colapsables, para que quede visible siempre (fija bajo el
+   header) aunque se cierren los filtros o se haga scroll. */
+function renderBuscadorBar() {
+  var cont = porId('cat-buscador-bar');
+  if (!cont) return;
+  cont.innerHTML =
+    '<div class="buscador"><span class="ic-lupa">' + ic('search', 15) + '</span>' +
+      '<input class="campo-input" placeholder="Buscar por código o nombre…" value="' + esc(_catBusca) + '" oninput="catBuscar(this.value)"/></div>';
 }
 
 function catIrA(vista) {
   _catVista = vista;
-  porId('cat-tab-catalogo').setAttribute('aria-current', vista === 'catalogo' ? 'page' : 'false');
-  porId('cat-tab-comprar').setAttribute('aria-current', vista === 'comprar' ? 'page' : 'false');
-  if (vista !== 'catalogo') porId('cat-tab-comprar').setAttribute('aria-current', 'page');
-  else porId('cat-tab-comprar').removeAttribute('aria-current');
   if (vista === 'catalogo') porId('cat-tab-catalogo').setAttribute('aria-current', 'page');
   else porId('cat-tab-catalogo').removeAttribute('aria-current');
+  if (vista === 'comprar') porId('cat-tab-comprar').setAttribute('aria-current', 'page');
+  else porId('cat-tab-comprar').removeAttribute('aria-current');
+
+  /* Los filtros son del catálogo: en "Cómo comprar" no pintan nada */
+  var toggle = document.querySelector('.cat-filtros-toggle');
+  if (toggle) toggle.style.display = vista === 'catalogo' ? '' : 'none';
+  var filtros = porId('cat-filtros');
+  if (filtros) filtros.style.display = vista === 'catalogo' ? '' : 'none';
+
   renderCatalogo();
+  window.scrollTo(0, 0);
 }
 
 function catAlternarFiltros() {
@@ -125,12 +160,6 @@ function renderFiltros() {
   var acabados = valoresUnicosCat('acabado');
 
   cont.innerHTML =
-    '<div class="cat-filtros-grupo">' +
-      '<div class="cat-filtros-titulo">' + ic('search', 13) + ' Buscar</div>' +
-      '<div class="buscador"><span class="ic-lupa">' + ic('search', 14) + '</span>' +
-        '<input class="campo-input" placeholder="Código o nombre…" value="' + esc(_catBusca) + '" oninput="catBuscar(this.value)"/></div>' +
-    '</div>' +
-
     (colecciones.length ? '<div class="cat-filtros-grupo">' +
       '<div class="cat-filtros-titulo">Colección</div>' +
       colecciones.map(function (c) {
@@ -165,9 +194,8 @@ function catFiltroToggle(varName, valor) {
 function catToggleDisponibles(v) { _catSoloDisponibles = v; _catPagina = 1; renderCatalogo(); }
 function catLimpiarFiltros() {
   _catBusca = ''; _catColecciones = {}; _catAcabados = {}; _catSoloDisponibles = false; _catPagina = 1;
-  renderFiltros(); renderCatalogo();
+  renderBuscadorBar(); renderFiltros(); renderCatalogo();
 }
-function catCambiarOrden(v) { _catOrden = v; renderCatalogo(); }
 
 /* ── Catálogo ─────────────────────────────────────────────── */
 function catalogoFiltrado() {
@@ -181,10 +209,7 @@ function catalogoFiltrado() {
     if (!q) return true;
     return normalizar(c.codigo).indexOf(q) !== -1 || normalizar(c.nombre).indexOf(q) !== -1;
   }).sort(function (a, b) {
-    if (a.piso !== b.piso) return a.piso - b.piso;
-    return _catOrden === 'nombre'
-      ? (a.nombre || a.codigo).localeCompare(b.nombre || b.codigo, 'es', { numeric: true })
-      : a.codigo.localeCompare(b.codigo, 'es', { numeric: true });
+    return a.codigo.localeCompare(b.codigo, 'es', { numeric: true });
   });
 }
 
@@ -219,27 +244,13 @@ function renderCatalogo() {
     return;
   }
 
-  var pisos = {};
-  visibles.forEach(function (c) { (pisos[c.piso] = pisos[c.piso] || []).push(c); });
-  var pisosOrdenados = Object.keys(pisos).map(Number).sort(function (a, b) { return a - b; });
-
   cont.innerHTML =
     '<div class="cat-cab-fila">' +
       '<div><h1 class="cat-cab-titulo">Catálogo de colores</h1>' +
         '<div class="cat-cab-sub">Mostrando ' + plural(total, 'color', 'colores') + '</div></div>' +
-      '<div class="cat-orden">Ordenar por ' +
-        '<select class="campo-input" onchange="catCambiarOrden(this.value)">' +
-          '<option value="codigo"' + (_catOrden === 'codigo' ? ' selected' : '') + '>Código (A-Z)</option>' +
-          '<option value="nombre"' + (_catOrden === 'nombre' ? ' selected' : '') + '>Nombre (A-Z)</option>' +
-        '</select></div>' +
     '</div>' +
 
-    pisosOrdenados.map(function (p) {
-      return '<div class="cat-piso">' +
-        '<div class="cat-piso-titulo">Piso ' + p + '</div>' +
-        '<div class="cat-grid">' + pisos[p].map(cardColorHTML).join('') + '</div>' +
-      '</div>';
-    }).join('') +
+    '<div class="cat-grid">' + visibles.map(cardColorHTML).join('') + '</div>' +
 
     '<div class="cat-paginacion">' +
       '<button ' + (_catPagina <= 1 ? 'disabled' : '') + ' onclick="catPaginaAnterior()" aria-label="Anterior" style="transform:rotate(180deg)">' + ic('chevron', 15) + '</button>' +
@@ -296,24 +307,40 @@ function nailSwatchHTML(hex, idSuffix) {
   '</svg>';
 }
 
+/* En el carrito se muestra la uña de muestra (la representación real
+   del color), igual que en la grilla del catálogo — así el local ve
+   de un vistazo el mismo color que eligió, no un frasco genérico. Si
+   todavía no hay foto de uña para ese color, se cae a la foto del
+   frasco y, si tampoco hay, a la uña dibujada. */
+function cartThumbHTML(c) {
+  if (c.imagen_una_url) {
+    return { clase: ' cat-nail-swatch-wrap', html: '<img class="cat-nail-swatch" src="' + esc(c.imagen_una_url) + '" alt=""/>' };
+  }
+  if (c.imagen_url) {
+    return { clase: '', html: '<img src="' + esc(c.imagen_url) + '" alt="' + esc(c.nombre || c.codigo) + '"/>' };
+  }
+  return { clase: ' cat-nail-swatch-wrap', html: nailSwatchHTML(c.hex, 'cart' + c.id) };
+}
+
 function cardColorHTML(c) {
   var stock = +c.stock || 0;
   var disponible = stock > 0;
   var cantidad = _catCarrito[c.id] || 0;
 
-  /* La uña de muestra es siempre una foto real cuando existe para
-     ese color (nunca una recreación). Si el color todavía no tiene
-     una foto de uña propia, no se inventa ninguna: si hay foto de
-     frasco, se muestra sola; si tampoco hay foto de frasco, se usa
-     la uña con volumen dibujada (para que el color nunca quede sin
-     ninguna representación visual). */
-  var una = c.imagen_una_url
-    ? '<img class="cat-nail-swatch" src="' + esc(c.imagen_una_url) + '" alt=""/>'
-    : (c.imagen_url ? '' : nailSwatchHTML(c.hex, 'card' + c.id));
+  /* La imagen principal de la tarjeta es la uña de muestra: es lo
+     que mejor muestra cómo queda puesto el color. Si el color
+     todavía no tiene foto de uña propia, se cae al frasco y, recién
+     si tampoco hay eso, a la uña con volumen dibujada. Cuando hay
+     además foto de frasco, se ve como una insignia chica abajo. */
+  var frasco = c.imagen_url
+    ? '<img class="cat-card-frasco-mini" src="' + esc(c.imagen_url) + '" alt=""/>'
+    : '';
 
-  var vidriera = c.imagen_url
-    ? '<img src="' + esc(c.imagen_url) + '" alt="' + esc(c.nombre) + '"/>' + una
-    : una;
+  var vidriera = c.imagen_una_url
+    ? '<img class="cat-card-img-principal" src="' + esc(c.imagen_una_url) + '" alt="' + esc(c.nombre) + '"/>' + frasco
+    : (c.imagen_url
+        ? '<img class="cat-card-img-principal" src="' + esc(c.imagen_url) + '" alt="' + esc(c.nombre) + '"/>'
+        : nailSwatchHTML(c.hex, 'card' + c.id));
 
   var control = !disponible
     ? '<button class="cat-card-agregar" disabled aria-label="Sin stock">' + ic('plus', 15) + '</button>'
@@ -326,10 +353,11 @@ function cardColorHTML(c) {
           '</div>');
 
   return '<div class="cat-card' + (disponible ? '' : ' agotado') + '">' +
-    '<div class="cat-card-vidriera' + (c.imagen_url ? '' : ' sin-foto') + '">' + vidriera +
+    '<button type="button" class="cat-card-vidriera' + ((c.imagen_una_url || c.imagen_url) ? '' : ' sin-foto') + '" ' +
+      'onclick="catAbrirDetalle(' + c.id + ')" aria-label="Ver el detalle de ' + esc(c.nombre || c.codigo) + '">' + vidriera +
       '<span class="cat-card-estado"><span class="pin pin-' + (disponible ? 'ok' : 'danger') + '">' +
         (disponible ? 'Disponible' : 'Sin stock') + '</span></span>' +
-    '</div>' +
+    '</button>' +
     '<div class="cat-card-cuerpo">' +
       '<div class="cat-card-codigo">' + esc(c.codigo) + '</div>' +
       '<div class="cat-card-nombre">' + esc(c.nombre || c.codigo) + '</div>' +
@@ -340,6 +368,125 @@ function cardColorHTML(c) {
       '</div>' +
     '</div>' +
   '</div>';
+}
+
+/* Ficha de detalle de un color: imagen grande (deslizable si hay
+   más de una), descripción, y la posibilidad de agregarlo al pedido
+   con la cantidad que se elija, todo sin salir de la ventana. Si a
+   un color le falta alguna foto no se inventa nada de más — solo se
+   muestra la que hay (y si no hay ninguna real, la uña dibujada). */
+var _catDetalle = null; // { id, imgs:[{etiq,html}], idx, cantidad }
+var _catSwipeX = null;
+
+function catAbrirDetalle(id) {
+  var c = _catColores.find(function (x) { return x.id === id; });
+  if (!c) return;
+
+  var imgs = [];
+  if (c.imagen_una_url) {
+    imgs.push({ etiq: 'Uña de muestra', html: '<img src="' + esc(c.imagen_una_url) + '" alt=""/>' });
+  }
+  if (c.imagen_url) {
+    imgs.push({ etiq: 'Frasco', html: '<img src="' + esc(c.imagen_url) + '" alt="' + esc(c.nombre || c.codigo) + '"/>' });
+  }
+  if (!imgs.length) {
+    imgs.push({ etiq: 'Uña de muestra', html: nailSwatchHTML(c.hex, 'det' + c.id) });
+  }
+
+  var stock = +c.stock || 0;
+  var actual = _catCarrito[id] || 0;
+  _catDetalle = { id: id, imgs: imgs, idx: 0, cantidad: Math.min(Math.max(actual, 1), Math.max(stock, 1)) };
+
+  abrirModal(c.codigo + (c.nombre ? ' · ' + c.nombre : ''), catDetalleHTML());
+}
+
+function catDetalleHTML() {
+  var d = _catDetalle;
+  if (!d) return '';
+  var c = _catColores.find(function (x) { return x.id === d.id; });
+  if (!c) return '';
+  var stock = +c.stock || 0;
+  var disponible = stock > 0;
+
+  var carrusel =
+    '<div class="cat-detalle-carrusel">' +
+      (d.imgs.length > 1 ? '<button type="button" class="cat-detalle-flecha izq" onclick="catDetalleImg(-1)" aria-label="Imagen anterior">' + ic('chevron', 15) + '</button>' : '') +
+      '<div class="cat-detalle-img" ontouchstart="catDetalleSwipeStart(event)" ontouchend="catDetalleSwipeEnd(event)">' + d.imgs[d.idx].html + '</div>' +
+      (d.imgs.length > 1 ? '<button type="button" class="cat-detalle-flecha der" onclick="catDetalleImg(1)" aria-label="Imagen siguiente">' + ic('chevron', 15) + '</button>' : '') +
+    '</div>' +
+    (d.imgs.length > 1
+      ? '<div class="cat-detalle-puntos">' + d.imgs.map(function (img, i) {
+          return '<button type="button" class="cat-detalle-punto' + (i === d.idx ? ' activo' : '') + '" onclick="catDetalleIrA(' + i + ')" aria-label="Ver ' + esc(img.etiq) + '"></button>';
+        }).join('') + '</div>'
+      : '') +
+    '<div class="cat-detalle-etiq">' + esc(d.imgs[d.idx].etiq) + '</div>';
+
+  var tags = [c.coleccion, c.acabado].filter(Boolean).map(esc).join(' · ');
+  var desc = c.descripcion
+    ? '<p class="cat-detalle-desc">' + esc(c.descripcion) + '</p>'
+    : (tags ? '<p class="cat-detalle-desc cat-detalle-desc-generica">' + tags + '</p>' : '');
+
+  var controlCant = !disponible
+    ? '<div class="cat-detalle-sinstock">' + ic('alert', 14) + ' Sin stock por el momento</div>'
+    : '<div class="cat-detalle-cantidad">' +
+        '<div class="campo-etiq">Unidades</div>' +
+        '<div class="cat-card-stepper cat-detalle-stepper">' +
+          '<button type="button" onclick="catDetalleCantidad(-1)" aria-label="Restar">' + ic('minus', 13) + '</button>' +
+          '<span>' + d.cantidad + '</span>' +
+          '<button type="button" ' + (d.cantidad >= stock ? 'disabled' : '') + ' onclick="catDetalleCantidad(1)" aria-label="Sumar">' + ic('plus', 13) + '</button>' +
+        '</div>' +
+        '<div class="campo-ayuda">' + stock + ' u. disponibles</div>' +
+      '</div>';
+
+  return '<div class="cat-detalle">' +
+      carrusel +
+      '<div class="cat-detalle-codigo">' + esc(c.codigo) + '</div>' +
+      '<h2 class="cat-detalle-nombre">' + esc(c.nombre || c.codigo) + '</h2>' +
+      desc +
+      controlCant +
+      (disponible ? '<button type="button" class="btn btn-primario btn-bloque cat-detalle-agregar" onclick="catDetalleAgregar()">' + ic('plus', 15) + ' Agregar al pedido</button>' : '') +
+    '</div>';
+}
+
+function catRepintarDetalle() {
+  var cuerpo = document.querySelector('#modal .modal-cuerpo');
+  if (cuerpo) cuerpo.innerHTML = catDetalleHTML();
+}
+function catDetalleImg(delta) {
+  var d = _catDetalle;
+  if (!d) return;
+  d.idx = (d.idx + delta + d.imgs.length) % d.imgs.length;
+  catRepintarDetalle();
+}
+function catDetalleIrA(i) {
+  if (!_catDetalle) return;
+  _catDetalle.idx = i;
+  catRepintarDetalle();
+}
+function catDetalleCantidad(delta) {
+  var d = _catDetalle;
+  if (!d) return;
+  var c = _catColores.find(function (x) { return x.id === d.id; });
+  var stock = c ? (+c.stock || 0) : 0;
+  d.cantidad = Math.max(1, Math.min(stock, d.cantidad + delta));
+  catRepintarDetalle();
+}
+function catDetalleSwipeStart(e) { _catSwipeX = e.changedTouches[0].clientX; }
+function catDetalleSwipeEnd(e) {
+  if (_catSwipeX === null) return;
+  var dx = e.changedTouches[0].clientX - _catSwipeX;
+  _catSwipeX = null;
+  if (Math.abs(dx) > 40) catDetalleImg(dx > 0 ? -1 : 1);
+}
+function catDetalleAgregar() {
+  var d = _catDetalle;
+  if (!d) return;
+  var c = _catColores.find(function (x) { return x.id === d.id; });
+  if (!c || (+c.stock || 0) <= 0) return;
+  _catCarrito[d.id] = Math.max(1, Math.min(+c.stock || 0, d.cantidad));
+  cerrarModal();
+  renderCatalogo(); renderPedido(); actualizarBadgeCarrito();
+  toast('Agregado al pedido');
 }
 
 /* ── Carrito ──────────────────────────────────────────────── */
@@ -363,19 +510,29 @@ function catQuitar(id) {
 }
 
 function actualizarBadgeCarrito() {
+  var n = String(Object.keys(_catCarrito).length);
   var el = porId('cat-badge');
-  if (el) el.textContent = String(Object.keys(_catCarrito).length);
+  if (el) el.textContent = n;
+  var el2 = porId('cat-fab-badge');
+  if (el2) el2.textContent = n;
 }
 
+/* El carrito queda accesible en todo momento con el botón flotante
+   (mobile) o el botón del header (desktop), sin importar el scroll;
+   se puede abrir y cerrar cuando se quiera. */
 function catAbrirPedido() {
   _catPedidoVisible = true;
   porId('cat-overlay').className = 'cat-pedido-overlay visible';
   porId('cat-panel').className = 'cat-pedido-panel visible';
+  var fab = porId('cat-fab');
+  if (fab) fab.className = 'cat-fab-carrito oculto';
 }
 function catCerrarPedido() {
   _catPedidoVisible = false;
   porId('cat-overlay').className = 'cat-pedido-overlay';
   porId('cat-panel').className = 'cat-pedido-panel';
+  var fab = porId('cat-fab');
+  if (fab) fab.className = 'cat-fab-carrito';
 }
 
 function catActualizarCampo(campo, valor) { _catForm[campo] = valor; }
@@ -401,12 +558,9 @@ function renderPedido() {
     '<div class="cat-pedido-cuerpo">' +
       (items.length
         ? items.map(function (it) {
+            var miniatura = cartThumbHTML(it.color);
             return '<div class="cat-pedido-fila">' +
-              '<div class="cat-pedido-swatch cat-nail-swatch-wrap">' +
-                (it.color.imagen_una_url
-                  ? '<img class="cat-nail-swatch" src="' + esc(it.color.imagen_una_url) + '" alt=""/>'
-                  : nailSwatchHTML(it.color.hex, 'cart' + it.color.id)) +
-              '</div>' +
+              '<div class="cat-pedido-swatch' + miniatura.clase + '">' + miniatura.html + '</div>' +
               '<div class="cat-pedido-fila-info">' +
                 '<div class="cat-pedido-fila-codigo">' + esc(it.color.codigo) + '</div>' +
                 '<div class="cat-pedido-fila-nombre">' + esc(it.color.nombre || it.color.codigo) + '</div>' +
@@ -430,6 +584,8 @@ function renderPedido() {
         '<input class="campo-input" placeholder="Ej: Estética Bella" value="' + esc(_catForm.local) + '" oninput="catActualizarCampo(\'local\',this.value)"/></div>' +
       '<div class="campo"><div class="campo-etiq">Teléfono / WhatsApp *</div>' +
         '<input class="campo-input" placeholder="Ej: 11 1234-5678" value="' + esc(_catForm.telefono) + '" oninput="catActualizarCampo(\'telefono\',this.value)"/></div>' +
+      '<div class="campo"><div class="campo-etiq">Localidad *</div>' +
+        '<input class="campo-input" placeholder="Ej: San Isidro" value="' + esc(_catForm.localidad) + '" oninput="catActualizarCampo(\'localidad\',this.value)"/></div>' +
       '<div class="campo"><div class="campo-etiq">Nombre de contacto (opcional)</div>' +
         '<input class="campo-input" placeholder="Ej: Laura" value="' + esc(_catForm.contacto) + '" oninput="catActualizarCampo(\'contacto\',this.value)"/></div>' +
       '<div class="campo"><div class="campo-etiq">Observaciones (opcional)</div>' +
@@ -450,6 +606,7 @@ async function catHacerPedido() {
   if (!ids.length) { toast('Agregá al menos un color', 'error'); return; }
   if (!_catForm.local.trim()) { toast('Falta el nombre del local', 'error'); return; }
   if (!_catForm.telefono.trim()) { toast('Falta el teléfono', 'error'); return; }
+  if (!_catForm.localidad.trim()) { toast('Falta la localidad', 'error'); return; }
 
   var items = ids.map(function (idStr) {
     var id = +idStr;
@@ -469,10 +626,10 @@ async function catHacerPedido() {
   _catEnviando = true;
   renderPedido();
   try {
-    var r = await crearPedidoB2B(_catForm.local.trim(), _catForm.telefono.trim(), _catForm.contacto.trim(), _catForm.observaciones.trim(), items);
+    var r = await crearPedidoB2B(_catForm.local.trim(), _catForm.telefono.trim(), _catForm.contacto.trim(), _catForm.observaciones.trim(), _catForm.localidad.trim(), items);
     _catConfirmacion = { numero: r.numero };
     _catCarrito = {};
-    _catForm = { local: '', telefono: '', contacto: '', observaciones: '' };
+    _catForm = { local: '', telefono: '', localidad: '', contacto: '', observaciones: '' };
     renderPedido();
     actualizarBadgeCarrito();
     await cargarColores(false);
@@ -515,6 +672,6 @@ function comoComprarHTML() {
       ['Confirmación', 'El equipo recibe tu pedido, lo prepara y te contacta al teléfono que dejaste.']
     ].map(function (p, i) {
       return '<div class="paso-envio"><div class="paso-num">' + (i + 1) + '</div>' +
-        '<div><div class="fila-titulo">' + esc(p[0]) + '</div><div class="fila-sub">' + esc(p[1]) + '</div></div></div>';
+        '<div><div class="paso-titulo">' + esc(p[0]) + '</div><div class="paso-texto">' + esc(p[1]) + '</div></div></div>';
     }).join('');
 }

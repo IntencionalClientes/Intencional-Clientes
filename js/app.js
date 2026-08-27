@@ -7,10 +7,17 @@
    ═══════════════════════════════════════════════════════════ */
 
 var _catColores = [];
+var _catProductos = [];
+var _catPacks = [];
+var _catPackItems = [];
 var _catCargando = true;
 var _catError = '';
 
-var _catCarrito = {};          // id -> cantidad
+/* El carrito ahora puede tener colores (esmaltes/semipermanentes),
+   productos simples (cremas, colágeno) y packs mezclados, así que
+   la clave deja de ser solo el id: es "tipo_id" (ej. "color_5",
+   "producto_2", "pack_1"), y cada entrada guarda tipo+id+cantidad. */
+var _catCarrito = {};           // "tipo_id" -> { tipo, id, cantidad }
 var _catBusca = '';
 var _catColecciones = {};      // colección -> true si está tildada
 var _catAcabados = {};
@@ -26,35 +33,53 @@ var _catEnviando = false;
 
 var _catForm = { local: '', telefono: '', localidad: '', contacto: '', observaciones: '' };
 
+/* Pestañas de tipo de producto — todo junto con un filtro, como en
+   el panel de gestión, en vez de una sección aparte por tipo. */
+var VISTAS_CATALOGO = [
+  { id: 'tradicional',    etiqueta: 'Esmaltes',          icono: 'droplet',  singular: 'color',    plural: 'colores' },
+  { id: 'semipermanente', etiqueta: 'Semipermanentes',   icono: 'sparkles', singular: 'color',    plural: 'colores' },
+  { id: 'producto',       etiqueta: 'Cremas y colágeno', icono: 'pill',     singular: 'producto', plural: 'productos' },
+  { id: 'pack',           etiqueta: 'Packs',             icono: 'box',      singular: 'pack',     plural: 'packs' }
+];
+var _catTipo = 'tradicional';
+
+function catVistaActual() {
+  return VISTAS_CATALOGO.filter(function (v) { return v.id === _catTipo; })[0] || VISTAS_CATALOGO[0];
+}
+
 document.addEventListener('DOMContentLoaded', iniciarCatalogo);
 
 async function iniciarCatalogo() {
   renderShell();
-  await cargarColores(true);
-  setInterval(function () { cargarColores(false); }, 25000);
+  await cargarCatalogo(true);
+  setInterval(function () { cargarCatalogo(false); }, 25000);
 }
 
-async function cargarColores(primeraVez) {
+/* Trae colores, productos, packs y pack_items en paralelo — todo lo
+   que puede aparecer en el catálogo y en un pedido mezclado. */
+async function cargarCatalogo(primeraVez) {
   try {
-    var nuevos = await traerColores();
-    var stockAnterior = {};
-    _catColores.forEach(function (c) { stockAnterior[c.id] = c.stock; });
-    _catColores = nuevos;
+    var resultados = await Promise.all([traerColores(), traerProductos(), traerPacks(), traerPackItems()]);
+    _catColores = resultados[0];
+    _catProductos = resultados[1];
+    _catPacks = resultados[2];
+    _catPackItems = resultados[3];
     _catCargando = false;
     _catError = '';
 
     /* Si mientras alguien tenía cosas en el carrito el stock bajó
        (otro local compró, o lo ajustaron desde el panel), se
-       recorta el pedido a lo que realmente queda. */
+       recorta el pedido a lo que realmente queda — sea color,
+       producto o pack. */
     var recortado = false;
-    Object.keys(_catCarrito).forEach(function (idStr) {
-      var id = +idStr;
-      var c = _catColores.find(function (x) { return x.id === id; });
-      var disponible = c ? (+c.stock || 0) : 0;
-      if (!c || !bool(c.activo) || disponible <= 0) { delete _catCarrito[id]; recortado = true; }
-      else if (_catCarrito[id] > disponible) { _catCarrito[id] = disponible; recortado = true; }
+    Object.keys(_catCarrito).forEach(function (k) {
+      var it = _catCarrito[k];
+      var disponible = catStock(it.tipo, it.id);
+      var activo = catActivo(it.tipo, it.id);
+      if (!activo || disponible <= 0) { delete _catCarrito[k]; recortado = true; }
+      else if (it.cantidad > disponible) { it.cantidad = disponible; recortado = true; }
     });
-    if (recortado && !primeraVez) toast('Actualizamos tu pedido: cambió el stock de algún color', 'error');
+    if (recortado && !primeraVez) toast('Actualizamos tu pedido: cambió el stock de algún producto', 'error');
 
     if (primeraVez) renderFiltros();
     renderCatalogo();
@@ -65,6 +90,41 @@ async function cargarColores(primeraVez) {
     _catError = e.message || 'No se pudo conectar con el catálogo';
     renderCatalogo();
   }
+}
+
+/* ── Helpers genéricos por tipo (color / producto / pack) ────── */
+function catClave(tipo, id) { return tipo + '_' + id; }
+
+function catEntidad(tipo, id) {
+  if (tipo === 'producto') return _catProductos.find(function (x) { return x.id === id; });
+  if (tipo === 'pack') return _catPacks.find(function (x) { return x.id === id; });
+  return _catColores.find(function (x) { return x.id === id; });
+}
+
+function catActivo(tipo, id) {
+  var e = catEntidad(tipo, id);
+  return !!(e && bool(e.activo));
+}
+
+/* El "stock" de un pack no es un número propio: es lo máximo que se
+   puede armar con el stock actual de los colores que trae (el
+   mínimo entre todos, cada uno dividido por cuántas unidades de ese
+   color lleva el pack). */
+function catStock(tipo, id) {
+  if (tipo === 'producto') { var p = catEntidad('producto', id); return p ? (+p.stock || 0) : 0; }
+  if (tipo === 'pack') {
+    var items = _catPackItems.filter(function (it) { return it.pack_id === id; });
+    if (!items.length) return 0;
+    var min = Infinity;
+    items.forEach(function (it) {
+      var c = _catColores.find(function (x) { return x.id === it.color_id; });
+      var disp = c ? (+c.stock || 0) : 0;
+      min = Math.min(min, Math.floor(disp / (+it.cantidad || 1)));
+    });
+    return Math.max(0, min);
+  }
+  var col = catEntidad('color', id);
+  return col ? (+col.stock || 0) : 0;
 }
 
 /* ── Armado de la pantalla (una sola vez) ────────────────── */
@@ -84,6 +144,7 @@ function renderShell() {
           '<span>Tu pedido</span><span class="cat-badge" id="cat-badge">0</span></button>' +
       '</header>' +
       '<div class="cat-buscador-bar" id="cat-buscador-bar"></div>' +
+      '<div class="cat-tipo-tabs-bar" id="cat-tipo-tabs-bar"></div>' +
     '</div>' +
     '<div class="cat-shell">' +
       '<button class="btn btn-secundario cat-filtros-toggle" onclick="catAlternarFiltros()">' + ic('settings', 15) + ' Filtros</button>' +
@@ -98,10 +159,37 @@ function renderShell() {
     '<div class="toast" id="toast"></div>';
 
   renderBuscadorBar();
+  renderTipoTabs();
   renderFiltros();
   renderPedido();
   ajustarAlturaTop();
   window.addEventListener('resize', ajustarAlturaTop);
+}
+
+/* Pestañas Esmaltes / Semipermanentes / Cremas y colágeno / Packs.
+   Cambiar de pestaña limpia los filtros que no le pertenecen a la
+   nueva (colección/acabado/oferta son solo de colores) y vuelve a
+   la primera página. */
+function renderTipoTabs() {
+  var cont = porId('cat-tipo-tabs-bar');
+  if (!cont) return;
+  cont.innerHTML = '<div class="tipo-tabs">' +
+    VISTAS_CATALOGO.map(function (v) {
+      return '<button class="tipo-tab' + (v.id === _catTipo ? ' activo' : '') + '" onclick="catCambiarTipo(\'' + v.id + '\')">' +
+        ic(v.icono, 15) + '<span>' + esc(v.etiqueta) + '</span></button>';
+    }).join('') +
+  '</div>';
+}
+
+function catCambiarTipo(id) {
+  if (id === _catTipo) return;
+  _catTipo = id;
+  _catBusca = ''; _catColecciones = {}; _catAcabados = {}; _catSoloOfertas = false; _catPagina = 1;
+  renderBuscadorBar();
+  renderTipoTabs();
+  renderFiltros();
+  renderCatalogo();
+  ajustarAlturaTop();
 }
 
 /* El bloque fijo de arriba (header + buscador) no tiene una altura
@@ -132,14 +220,18 @@ function catIrA(vista) {
   if (vista === 'comprar') porId('cat-tab-comprar').setAttribute('aria-current', 'page');
   else porId('cat-tab-comprar').removeAttribute('aria-current');
 
-  /* Los filtros son del catálogo: en "Cómo comprar" no pintan nada */
+  /* Los filtros y las pestañas de tipo son del catálogo: en "Cómo
+     comprar" no pintan nada */
   var toggle = document.querySelector('.cat-filtros-toggle');
   if (toggle) toggle.style.display = vista === 'catalogo' ? '' : 'none';
   var filtros = porId('cat-filtros');
   if (filtros) filtros.style.display = vista === 'catalogo' ? '' : 'none';
+  var tabsBar = porId('cat-tipo-tabs-bar');
+  if (tabsBar) tabsBar.style.display = vista === 'catalogo' ? '' : 'none';
 
   renderCatalogo();
   window.scrollTo(0, 0);
+  ajustarAlturaTop();
 }
 
 function catAlternarFiltros() {
@@ -148,17 +240,26 @@ function catAlternarFiltros() {
 }
 
 /* ── Filtros ──────────────────────────────────────────────── */
+/* Colección, acabado y "solo en oferta" son filtros de colores —
+   no tienen sentido para cremas/colágeno ni para packs. */
+function catEsColores() { return _catTipo === 'tradicional' || _catTipo === 'semipermanente'; }
+
+function catColoresDeVista() {
+  return _catColores.filter(function (c) { return (c.tipo || 'tradicional') === _catTipo; });
+}
+
 function valoresUnicosCat(campo) {
   var s = {};
-  _catColores.forEach(function (c) { if (c[campo]) s[c[campo]] = 1; });
+  catColoresDeVista().forEach(function (c) { if (c[campo]) s[c[campo]] = 1; });
   return Object.keys(s).sort(function (a, b) { return a.localeCompare(b, 'es'); });
 }
 
 function renderFiltros() {
   var cont = porId('cat-filtros');
   if (!cont) return;
-  var colecciones = valoresUnicosCat('coleccion');
-  var acabados = valoresUnicosCat('acabado');
+  var esColores = catEsColores();
+  var colecciones = esColores ? valoresUnicosCat('coleccion') : [];
+  var acabados = esColores ? valoresUnicosCat('acabado') : [];
 
   cont.innerHTML =
     (colecciones.length ? '<div class="cat-filtros-grupo">' +
@@ -180,8 +281,8 @@ function renderFiltros() {
     '<div class="cat-filtros-grupo">' +
       '<label class="cat-toggle"><input type="checkbox"' + (_catSoloDisponibles ? ' checked' : '') +
         ' onchange="catToggleDisponibles(this.checked)"/> Solo disponibles</label>' +
-      '<label class="cat-toggle"><input type="checkbox"' + (_catSoloOfertas ? ' checked' : '') +
-        ' onchange="catToggleOfertas(this.checked)"/> Solo en oferta</label>' +
+      (esColores ? '<label class="cat-toggle"><input type="checkbox"' + (_catSoloOfertas ? ' checked' : '') +
+        ' onchange="catToggleOfertas(this.checked)"/> Solo en oferta</label>' : '') +
     '</div>' +
 
     '<button class="cat-filtros-limpiar" onclick="catLimpiarFiltros()">Limpiar filtros</button>';
@@ -202,26 +303,59 @@ function catLimpiarFiltros() {
 }
 
 /* ── Catálogo ─────────────────────────────────────────────── */
-function catalogoFiltrado() {
+/* La fuente "cruda" según la pestaña activa, antes de aplicar
+   búsqueda/filtros — sirve para distinguir "todavía no hay nada de
+   esto cargado" de "hay, pero ninguno coincide con lo que buscás". */
+function catFuenteVista() {
+  if (_catTipo === 'producto') return _catProductos;
+  if (_catTipo === 'pack') return _catPacks;
+  return catColoresDeVista();
+}
+
+function catItemsFiltrados() {
   var q = normalizar(_catBusca);
-  var colSel = Object.keys(_catColecciones).length > 0;
-  var acaSel = Object.keys(_catAcabados).length > 0;
-  return _catColores.filter(function (c) {
-    if (colSel && !_catColecciones[c.coleccion]) return false;
-    if (acaSel && !_catAcabados[c.acabado]) return false;
-    if (_catSoloDisponibles && (+c.stock || 0) <= 0) return false;
-    if (_catSoloOfertas && !c.en_oferta) return false;
+
+  if (catEsColores()) {
+    var colSel = Object.keys(_catColecciones).length > 0;
+    var acaSel = Object.keys(_catAcabados).length > 0;
+    return catColoresDeVista().filter(function (c) {
+      if (colSel && !_catColecciones[c.coleccion]) return false;
+      if (acaSel && !_catAcabados[c.acabado]) return false;
+      if (_catSoloDisponibles && (+c.stock || 0) <= 0) return false;
+      if (_catSoloOfertas && !c.en_oferta) return false;
+      if (!q) return true;
+      return normalizar(c.codigo).indexOf(q) !== -1 || normalizar(c.nombre).indexOf(q) !== -1;
+    }).sort(function (a, b) {
+      /* Los colores en oferta aparecen primero (así se ven apenas se
+         entra, sin que el local tenga que buscarlos) — es la forma
+         de darles empuje a los que cuesta más vender. Dentro de cada
+         grupo, el orden es por código como siempre. */
+      var oa = a.en_oferta ? 0 : 1, ob = b.en_oferta ? 0 : 1;
+      if (oa !== ob) return oa - ob;
+      return a.codigo.localeCompare(b.codigo, 'es', { numeric: true });
+    });
+  }
+
+  if (_catTipo === 'producto') {
+    return _catProductos.filter(function (p) {
+      if (_catSoloDisponibles && (+p.stock || 0) <= 0) return false;
+      if (!q) return true;
+      return normalizar(p.nombre).indexOf(q) !== -1;
+    }).sort(function (a, b) { return a.nombre.localeCompare(b.nombre, 'es'); });
+  }
+
+  /* packs */
+  return _catPacks.filter(function (p) {
+    if (_catSoloDisponibles && catStock('pack', p.id) <= 0) return false;
     if (!q) return true;
-    return normalizar(c.codigo).indexOf(q) !== -1 || normalizar(c.nombre).indexOf(q) !== -1;
-  }).sort(function (a, b) {
-    /* Los colores en oferta aparecen primero (así se ven apenas se
-       entra, sin que el local tenga que buscarlos) — es la forma
-       de darles empuje a los que cuesta más vender. Dentro de cada
-       grupo, el orden es por código como siempre. */
-    var oa = a.en_oferta ? 0 : 1, ob = b.en_oferta ? 0 : 1;
-    if (oa !== ob) return oa - ob;
-    return a.codigo.localeCompare(b.codigo, 'es', { numeric: true });
-  });
+    return normalizar(p.nombre).indexOf(q) !== -1;
+  }).sort(function (a, b) { return a.nombre.localeCompare(b.nombre, 'es'); });
+}
+
+function itemCardHTML(item) {
+  if (_catTipo === 'producto') return cardProductoHTML(item);
+  if (_catTipo === 'pack') return cardPackHTML(item);
+  return cardColorHTML(item);
 }
 
 function renderCatalogo() {
@@ -233,15 +367,20 @@ function renderCatalogo() {
   if (_catCargando) { cont.innerHTML = cargando('Cargando catálogo…'); return; }
   if (_catError) {
     cont.innerHTML = avisoHTML('danger', '<strong>No se pudo cargar el catálogo.</strong><br>' + esc(_catError) +
-      '<br><button class="btn btn-secundario" style="margin-top:10px" onclick="cargarColores(true)">Reintentar</button>');
-    return;
-  }
-  if (!_catColores.length) {
-    cont.innerHTML = vacio('palette', 'Todavía no hay colores cargados', 'En cuanto se carguen en el sistema, van a aparecer acá.');
+      '<br><button class="btn btn-secundario" style="margin-top:10px" onclick="cargarCatalogo(true)">Reintentar</button>');
     return;
   }
 
-  var lista = catalogoFiltrado();
+  var vista = catVistaActual();
+  var fuente = catFuenteVista();
+  if (!fuente.length) {
+    cont.innerHTML =
+      '<div class="cat-cab-fila"><div><h1 class="cat-cab-titulo">' + esc(vista.etiqueta) + '</h1></div></div>' +
+      vacio('palette', 'Todavía no hay nada acá', 'En cuanto se cargue en el sistema, va a aparecer.');
+    return;
+  }
+
+  var lista = catItemsFiltrados();
   var total = lista.length;
   var totalPaginas = Math.max(1, Math.ceil(total / CAT_POR_PAGINA));
   if (_catPagina > totalPaginas) _catPagina = totalPaginas;
@@ -250,18 +389,18 @@ function renderCatalogo() {
 
   if (!total) {
     cont.innerHTML =
-      '<div class="cat-cab-fila"><div><h1 class="cat-cab-titulo">Catálogo de colores</h1></div></div>' +
-      vacio('search', 'Ningún color coincide', 'Probá cambiar la búsqueda o los filtros.');
+      '<div class="cat-cab-fila"><div><h1 class="cat-cab-titulo">' + esc(vista.etiqueta) + '</h1></div></div>' +
+      vacio('search', 'Nada coincide', 'Probá cambiar la búsqueda o los filtros.');
     return;
   }
 
   cont.innerHTML =
     '<div class="cat-cab-fila">' +
-      '<div><h1 class="cat-cab-titulo">Catálogo de colores</h1>' +
-        '<div class="cat-cab-sub">Mostrando ' + plural(total, 'color', 'colores') + '</div></div>' +
+      '<div><h1 class="cat-cab-titulo">' + esc(vista.etiqueta) + '</h1>' +
+        '<div class="cat-cab-sub">Mostrando ' + plural(total, vista.singular, vista.plural) + '</div></div>' +
     '</div>' +
 
-    '<div class="cat-grid">' + visibles.map(cardColorHTML).join('') + '</div>' +
+    '<div class="cat-grid">' + visibles.map(itemCardHTML).join('') + '</div>' +
 
     '<div class="cat-paginacion">' +
       '<button ' + (_catPagina <= 1 ? 'disabled' : '') + ' onclick="catPaginaAnterior()" aria-label="Anterior" style="transform:rotate(180deg)">' + ic('chevron', 15) + '</button>' +
@@ -323,14 +462,25 @@ function nailSwatchHTML(hex, idSuffix) {
    de un vistazo el mismo color que eligió, no un frasco genérico. Si
    todavía no hay foto de uña para ese color, se cae a la foto del
    frasco y, si tampoco hay, a la uña dibujada. */
-function cartThumbHTML(c) {
-  if (c.imagen_una_url) {
-    return { clase: ' cat-nail-swatch-wrap', html: '<img class="cat-nail-swatch" src="' + esc(c.imagen_una_url) + '" alt=""/>' };
+function cartThumbHTML(tipo, e) {
+  if (tipo === 'color') {
+    if (e.imagen_una_url) {
+      return { clase: ' cat-nail-swatch-wrap', html: '<img class="cat-nail-swatch" src="' + esc(e.imagen_una_url) + '" alt=""/>' };
+    }
+    if (e.imagen_url) {
+      return { clase: '', html: '<img src="' + esc(e.imagen_url) + '" alt="' + esc(e.nombre || e.codigo) + '"/>' };
+    }
+    return { clase: ' cat-nail-swatch-wrap', html: nailSwatchHTML(e.hex, 'cart' + e.id) };
   }
-  if (c.imagen_url) {
-    return { clase: '', html: '<img src="' + esc(c.imagen_url) + '" alt="' + esc(c.nombre || c.codigo) + '"/>' };
+  if (e.imagen_url) {
+    return { clase: '', html: '<img src="' + esc(e.imagen_url) + '" alt="' + esc(e.nombre) + '"/>' };
   }
-  return { clase: ' cat-nail-swatch-wrap', html: nailSwatchHTML(c.hex, 'cart' + c.id) };
+  return { clase: ' cat-nail-swatch-wrap', html: '<div class="cat-tipo-icono cat-tipo-icono-mini">' + ic(tipo === 'pack' ? 'box' : 'pill', 18) + '</div>' };
+}
+
+/* ── Ícono genérico para productos y packs sin foto ──────────── */
+function tipoIconoHTML(tipo) {
+  return '<div class="cat-tipo-icono">' + ic(tipo === 'pack' ? 'box' : 'pill', 30) + '</div>';
 }
 
 /* Precio de lista, y si el color está en oferta, el precio de
@@ -353,7 +503,7 @@ function precioHTML(c) {
 function cardColorHTML(c) {
   var stock = +c.stock || 0;
   var disponible = stock > 0;
-  var cantidad = _catCarrito[c.id] || 0;
+  var cantidad = (_catCarrito[catClave('color', c.id)] || {}).cantidad || 0;
 
   /* La imagen principal de la tarjeta es el frasco (el producto que
      se está pidiendo); la uña de muestra queda como insignia chica
@@ -373,16 +523,16 @@ function cardColorHTML(c) {
   var control = !disponible
     ? '<button class="cat-card-agregar" disabled aria-label="Sin stock">' + ic('plus', 15) + '</button>'
     : (cantidad <= 0
-        ? '<button class="cat-card-agregar" onclick="catAgregar(' + c.id + ')" aria-label="Agregar al pedido">' + ic('plus', 15) + '</button>'
+        ? '<button class="cat-card-agregar" onclick="catAgregar(\'color\',' + c.id + ')" aria-label="Agregar al pedido">' + ic('plus', 15) + '</button>'
         : '<div class="cat-card-stepper">' +
-            '<button onclick="catCambiarCantidad(' + c.id + ',-1)" aria-label="Restar">' + ic('minus', 12) + '</button>' +
+            '<button onclick="catCambiarCantidad(\'color\',' + c.id + ',-1)" aria-label="Restar">' + ic('minus', 12) + '</button>' +
             '<span>' + cantidad + '</span>' +
-            '<button ' + (cantidad >= stock ? 'disabled' : '') + ' onclick="catCambiarCantidad(' + c.id + ',1)" aria-label="Sumar">' + ic('plus', 12) + '</button>' +
+            '<button ' + (cantidad >= stock ? 'disabled' : '') + ' onclick="catCambiarCantidad(\'color\',' + c.id + ',1)" aria-label="Sumar">' + ic('plus', 12) + '</button>' +
           '</div>');
 
   return '<div class="cat-card' + (disponible ? '' : ' agotado') + '">' +
     '<button type="button" class="cat-card-vidriera' + ((c.imagen_una_url || c.imagen_url) ? '' : ' sin-foto') + '" ' +
-      'onclick="catAbrirDetalle(' + c.id + ')" aria-label="Ver el detalle de ' + esc(c.nombre || c.codigo) + '">' + vidriera +
+      'onclick="catAbrirDetalle(\'color\',' + c.id + ')" aria-label="Ver el detalle de ' + esc(c.nombre || c.codigo) + '">' + vidriera +
       (c.en_oferta ? '<span class="cat-card-oferta">Oferta</span>' : '') +
       '<span class="cat-card-estado"><span class="pin pin-' + (disponible ? 'ok' : 'danger') + '">' +
         (disponible ? 'Disponible' : 'Sin stock') + '</span></span>' +
@@ -400,42 +550,133 @@ function cardColorHTML(c) {
   '</div>';
 }
 
-/* Ficha de detalle de un color: imagen grande (deslizable si hay
-   más de una), descripción, y la posibilidad de agregarlo al pedido
-   con la cantidad que se elija, todo sin salir de la ventana. Si a
-   un color le falta alguna foto no se inventa nada de más — solo se
-   muestra la que hay (y si no hay ninguna real, la uña dibujada). */
-var _catDetalle = null; // { id, imgs:[{etiq,html}], idx, cantidad }
+/* ── Tarjetas de producto simple (cremas, colágeno) y de pack ─
+   Mismo molde visual que la tarjeta de color (.cat-card), pero sin
+   colección/acabado y con un ícono en vez de la uña dibujada
+   cuando no hay foto propia. */
+var CATEGORIAS_PRODUCTO_CAT = { crema: 'Crema', colageno: 'Colágeno', otro: 'Otro' };
+
+function cardProductoHTML(p) {
+  var stock = +p.stock || 0;
+  var disponible = stock > 0;
+  var cantidad = (_catCarrito[catClave('producto', p.id)] || {}).cantidad || 0;
+  var vidriera = p.imagen_url
+    ? '<img class="cat-card-img-principal" src="' + esc(p.imagen_url) + '" alt="' + esc(p.nombre) + '"/>'
+    : tipoIconoHTML('producto');
+
+  var control = !disponible
+    ? '<button class="cat-card-agregar" disabled aria-label="Sin stock">' + ic('plus', 15) + '</button>'
+    : (cantidad <= 0
+        ? '<button class="cat-card-agregar" onclick="catAgregar(\'producto\',' + p.id + ')" aria-label="Agregar al pedido">' + ic('plus', 15) + '</button>'
+        : '<div class="cat-card-stepper">' +
+            '<button onclick="catCambiarCantidad(\'producto\',' + p.id + ',-1)" aria-label="Restar">' + ic('minus', 12) + '</button>' +
+            '<span>' + cantidad + '</span>' +
+            '<button ' + (cantidad >= stock ? 'disabled' : '') + ' onclick="catCambiarCantidad(\'producto\',' + p.id + ',1)" aria-label="Sumar">' + ic('plus', 12) + '</button>' +
+          '</div>');
+
+  return '<div class="cat-card' + (disponible ? '' : ' agotado') + '">' +
+    '<button type="button" class="cat-card-vidriera' + (p.imagen_url ? '' : ' sin-foto') + '" ' +
+      'onclick="catAbrirDetalle(\'producto\',' + p.id + ')" aria-label="Ver el detalle de ' + esc(p.nombre) + '">' + vidriera +
+      '<span class="cat-card-estado"><span class="pin pin-' + (disponible ? 'ok' : 'danger') + '">' +
+        (disponible ? 'Disponible' : 'Sin stock') + '</span></span>' +
+    '</button>' +
+    '<div class="cat-card-cuerpo">' +
+      '<div class="cat-card-nombre">' + esc(p.nombre) + '</div>' +
+      (CATEGORIAS_PRODUCTO_CAT[p.categoria] ? '<div class="cat-card-tags">' + esc(CATEGORIAS_PRODUCTO_CAT[p.categoria]) + '</div>' : '') +
+      (+p.precio ? '<div class="cat-card-precio"><span class="cat-precio-lista">' + plata(+p.precio) + '</span></div>' : '') +
+      '<div class="cat-card-pie">' +
+        (disponible ? '<div class="cat-card-stock">' + stock + ' u. disp.</div>' : '<div class="cat-card-stock agotado">Sin stock</div>') +
+        control +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function cardPackHTML(pk) {
+  var stock = catStock('pack', pk.id);
+  var disponible = stock > 0;
+  var cantidad = (_catCarrito[catClave('pack', pk.id)] || {}).cantidad || 0;
+  var vidriera = pk.imagen_url
+    ? '<img class="cat-card-img-principal" src="' + esc(pk.imagen_url) + '" alt="' + esc(pk.nombre) + '"/>'
+    : tipoIconoHTML('pack');
+
+  var control = !disponible
+    ? '<button class="cat-card-agregar" disabled aria-label="Sin stock">' + ic('plus', 15) + '</button>'
+    : (cantidad <= 0
+        ? '<button class="cat-card-agregar" onclick="catAgregar(\'pack\',' + pk.id + ')" aria-label="Agregar al pedido">' + ic('plus', 15) + '</button>'
+        : '<div class="cat-card-stepper">' +
+            '<button onclick="catCambiarCantidad(\'pack\',' + pk.id + ',-1)" aria-label="Restar">' + ic('minus', 12) + '</button>' +
+            '<span>' + cantidad + '</span>' +
+            '<button ' + (cantidad >= stock ? 'disabled' : '') + ' onclick="catCambiarCantidad(\'pack\',' + pk.id + ',1)" aria-label="Sumar">' + ic('plus', 12) + '</button>' +
+          '</div>');
+
+  return '<div class="cat-card' + (disponible ? '' : ' agotado') + '">' +
+    '<button type="button" class="cat-card-vidriera' + (pk.imagen_url ? '' : ' sin-foto') + '" ' +
+      'onclick="catAbrirDetalle(\'pack\',' + pk.id + ')" aria-label="Ver el detalle de ' + esc(pk.nombre) + '">' + vidriera +
+      '<span class="cat-card-estado"><span class="pin pin-' + (disponible ? 'ok' : 'danger') + '">' +
+        (disponible ? 'Disponible' : 'Sin stock') + '</span></span>' +
+    '</button>' +
+    '<div class="cat-card-cuerpo">' +
+      '<div class="cat-card-nombre">' + esc(pk.nombre) + '</div>' +
+      (+pk.precio ? '<div class="cat-card-precio"><span class="cat-precio-lista">' + plata(+pk.precio) + '</span></div>' : '') +
+      '<div class="cat-card-pie">' +
+        (disponible ? '<div class="cat-card-stock">' + stock + ' u. disp.</div>' : '<div class="cat-card-stock agotado">Sin stock</div>') +
+        control +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/* Qué colores trae un pack, para mostrarlo en su ficha de detalle. */
+function packContenidoHTML(packId) {
+  var items = _catPackItems.filter(function (it) { return it.pack_id === packId; });
+  if (!items.length) return '';
+  return '<div class="cat-pack-contenido"><div class="campo-etiq">Este pack incluye</div>' +
+    items.map(function (it) {
+      var c = _catColores.find(function (x) { return x.id === it.color_id; });
+      return '<div class="cat-pack-fila"><span>' + esc(c ? (c.codigo + (c.nombre ? ' — ' + c.nombre : '')) : 'Color eliminado') + '</span><span>x' + it.cantidad + '</span></div>';
+    }).join('') +
+  '</div>';
+}
+
+/* Ficha de detalle de un color, producto o pack: imagen grande
+   (deslizable si hay más de una), descripción, y la posibilidad de
+   agregarlo al pedido con la cantidad que se elija, todo sin salir
+   de la ventana. Si a un color le falta alguna foto no se inventa
+   nada de más — solo se muestra la que hay (y si no hay ninguna
+   real, la uña dibujada; productos y packs usan un ícono). */
+var _catDetalle = null; // { tipo, id, imgs:[{etiq,html}], idx, cantidad }
 var _catSwipeX = null;
 
-function catAbrirDetalle(id) {
-  var c = _catColores.find(function (x) { return x.id === id; });
-  if (!c) return;
+function catAbrirDetalle(tipo, id) {
+  var e = catEntidad(tipo, id);
+  if (!e) return;
 
   var imgs = [];
-  if (c.imagen_url) {
-    imgs.push({ etiq: 'Frasco', html: '<img src="' + esc(c.imagen_url) + '" alt="' + esc(c.nombre || c.codigo) + '"/>' });
-  }
-  if (c.imagen_una_url) {
-    imgs.push({ etiq: 'Uña de muestra', html: '<img src="' + esc(c.imagen_una_url) + '" alt=""/>' });
-  }
-  if (!imgs.length) {
-    imgs.push({ etiq: 'Uña de muestra', html: nailSwatchHTML(c.hex, 'det' + c.id) });
+  var titulo;
+  if (tipo === 'color') {
+    if (e.imagen_url) imgs.push({ etiq: 'Frasco', html: '<img src="' + esc(e.imagen_url) + '" alt="' + esc(e.nombre || e.codigo) + '"/>' });
+    if (e.imagen_una_url) imgs.push({ etiq: 'Uña de muestra', html: '<img src="' + esc(e.imagen_una_url) + '" alt=""/>' });
+    if (!imgs.length) imgs.push({ etiq: 'Uña de muestra', html: nailSwatchHTML(e.hex, 'det' + e.id) });
+    titulo = e.codigo + (e.nombre ? ' · ' + e.nombre : '');
+  } else {
+    imgs.push({ etiq: e.nombre, html: e.imagen_url ? '<img src="' + esc(e.imagen_url) + '" alt="' + esc(e.nombre) + '"/>' : tipoIconoHTML(tipo) });
+    titulo = e.nombre;
   }
 
-  var stock = +c.stock || 0;
-  var actual = _catCarrito[id] || 0;
-  _catDetalle = { id: id, imgs: imgs, idx: 0, cantidad: Math.min(Math.max(actual, 1), Math.max(stock, 1)) };
+  var stock = catStock(tipo, id);
+  var actual = (_catCarrito[catClave(tipo, id)] || {}).cantidad || 0;
+  _catDetalle = { tipo: tipo, id: id, imgs: imgs, idx: 0, cantidad: Math.min(Math.max(actual, 1), Math.max(stock, 1)) };
 
-  abrirModal(c.codigo + (c.nombre ? ' · ' + c.nombre : ''), catDetalleHTML());
+  abrirModal(titulo, catDetalleHTML());
 }
 
 function catDetalleHTML() {
   var d = _catDetalle;
   if (!d) return '';
-  var c = _catColores.find(function (x) { return x.id === d.id; });
-  if (!c) return '';
-  var stock = +c.stock || 0;
+  var e = catEntidad(d.tipo, d.id);
+  if (!e) return '';
+  var stock = catStock(d.tipo, d.id);
   var disponible = stock > 0;
 
   var carrusel =
@@ -451,12 +692,21 @@ function catDetalleHTML() {
       : '') +
     '<div class="cat-detalle-etiq">' + esc(d.imgs[d.idx].etiq) + '</div>';
 
-  var tags = [c.coleccion, c.acabado].filter(Boolean).map(esc).join(' · ');
-  var desc = c.descripcion
-    ? '<p class="cat-detalle-desc">' + textoConFormato(c.descripcion) + '</p>'
-    : (tags ? '<p class="cat-detalle-desc cat-detalle-desc-generica">' + tags + '</p>' : '');
+  var codigoLinea = d.tipo === 'color' ? '<div class="cat-detalle-codigo">' + esc(e.codigo) + '</div>' : '';
+  var nombreLinea = '<h2 class="cat-detalle-nombre">' + esc(d.tipo === 'color' ? (e.nombre || e.codigo) : e.nombre) + '</h2>';
 
-  var precio = precioHTML(c);
+  var precio = '', desc = '', extra = '';
+  if (d.tipo === 'color') {
+    precio = precioHTML(e);
+    var tags = [e.coleccion, e.acabado].filter(Boolean).map(esc).join(' · ');
+    desc = e.descripcion
+      ? '<p class="cat-detalle-desc">' + textoConFormato(e.descripcion) + '</p>'
+      : (tags ? '<p class="cat-detalle-desc cat-detalle-desc-generica">' + tags + '</p>' : '');
+  } else {
+    precio = (+e.precio) ? '<span class="cat-precio-lista">' + plata(+e.precio) + '</span>' : '';
+    desc = e.descripcion ? '<p class="cat-detalle-desc">' + textoConFormato(e.descripcion) + '</p>' : '';
+    if (d.tipo === 'pack') extra = packContenidoHTML(d.id);
+  }
 
   var controlCant = !disponible
     ? '<div class="cat-detalle-sinstock">' + ic('alert', 14) + ' Sin stock por el momento</div>'
@@ -472,10 +722,11 @@ function catDetalleHTML() {
 
   return '<div class="cat-detalle">' +
       carrusel +
-      '<div class="cat-detalle-codigo">' + esc(c.codigo) + '</div>' +
-      '<h2 class="cat-detalle-nombre">' + esc(c.nombre || c.codigo) + '</h2>' +
+      codigoLinea +
+      nombreLinea +
       (precio ? '<div class="cat-detalle-precio">' + precio + '</div>' : '') +
       desc +
+      extra +
       controlCant +
       (disponible ? '<button type="button" class="btn btn-primario btn-bloque cat-detalle-agregar" onclick="catDetalleAgregar()">' + ic('plus', 15) + ' Agregar al pedido</button>' : '') +
     '</div>';
@@ -499,8 +750,7 @@ function catDetalleIrA(i) {
 function catDetalleCantidad(delta) {
   var d = _catDetalle;
   if (!d) return;
-  var c = _catColores.find(function (x) { return x.id === d.id; });
-  var stock = c ? (+c.stock || 0) : 0;
+  var stock = catStock(d.tipo, d.id);
   d.cantidad = Math.max(1, Math.min(stock, d.cantidad + delta));
   catRepintarDetalle();
 }
@@ -514,31 +764,30 @@ function catDetalleSwipeEnd(e) {
 function catDetalleAgregar() {
   var d = _catDetalle;
   if (!d) return;
-  var c = _catColores.find(function (x) { return x.id === d.id; });
-  if (!c || (+c.stock || 0) <= 0) return;
-  _catCarrito[d.id] = Math.max(1, Math.min(+c.stock || 0, d.cantidad));
+  var stock = catStock(d.tipo, d.id);
+  if (stock <= 0) return;
+  _catCarrito[catClave(d.tipo, d.id)] = { tipo: d.tipo, id: d.id, cantidad: Math.max(1, Math.min(stock, d.cantidad)) };
   cerrarModal();
   renderCatalogo(); renderPedido(); actualizarBadgeCarrito();
   toast('Agregado al pedido');
 }
 
 /* ── Carrito ──────────────────────────────────────────────── */
-function catAgregar(id) {
-  var c = _catColores.find(function (x) { return x.id === id; });
-  if (!c || (+c.stock || 0) <= 0) return;
-  _catCarrito[id] = 1;
+function catAgregar(tipo, id) {
+  if (catStock(tipo, id) <= 0) return;
+  _catCarrito[catClave(tipo, id)] = { tipo: tipo, id: id, cantidad: 1 };
   renderCatalogo(); renderPedido(); actualizarBadgeCarrito();
 }
-function catCambiarCantidad(id, delta) {
-  var c = _catColores.find(function (x) { return x.id === id; });
-  var stock = c ? (+c.stock || 0) : 0;
-  var actual = _catCarrito[id] || 0;
+function catCambiarCantidad(tipo, id, delta) {
+  var k = catClave(tipo, id);
+  var stock = catStock(tipo, id);
+  var actual = _catCarrito[k] ? _catCarrito[k].cantidad : 0;
   var nuevo = Math.max(0, Math.min(stock, actual + delta));
-  if (nuevo <= 0) delete _catCarrito[id]; else _catCarrito[id] = nuevo;
+  if (nuevo <= 0) delete _catCarrito[k]; else _catCarrito[k] = { tipo: tipo, id: id, cantidad: nuevo };
   renderCatalogo(); renderPedido(); actualizarBadgeCarrito();
 }
-function catQuitar(id) {
-  delete _catCarrito[id];
+function catQuitar(tipo, id) {
+  delete _catCarrito[catClave(tipo, id)];
   renderCatalogo(); renderPedido(); actualizarBadgeCarrito();
 }
 
@@ -576,11 +825,10 @@ function renderPedido() {
 
   if (_catConfirmacion) { panel.innerHTML = confirmacionHTML(); return; }
 
-  var ids = Object.keys(_catCarrito);
-  var items = ids.map(function (idStr) {
-    var id = +idStr;
-    var c = _catColores.find(function (x) { return x.id === id; });
-    return c ? { color: c, cantidad: _catCarrito[id] } : null;
+  var items = Object.keys(_catCarrito).map(function (k) {
+    var it = _catCarrito[k];
+    var e = catEntidad(it.tipo, it.id);
+    return e ? { tipo: it.tipo, entidad: e, cantidad: it.cantidad, stockMax: catStock(it.tipo, it.id) } : null;
   }).filter(Boolean);
 
   panel.innerHTML =
@@ -591,24 +839,26 @@ function renderPedido() {
     '<div class="cat-pedido-cuerpo">' +
       (items.length
         ? items.map(function (it) {
-            var miniatura = cartThumbHTML(it.color);
+            var miniatura = cartThumbHTML(it.tipo, it.entidad);
+            var codigo = it.tipo === 'color' ? it.entidad.codigo : (it.tipo === 'pack' ? 'Pack' : 'Producto');
+            var nombre = it.tipo === 'color' ? (it.entidad.nombre || it.entidad.codigo) : it.entidad.nombre;
             return '<div class="cat-pedido-fila">' +
               '<div class="cat-pedido-swatch' + miniatura.clase + '">' + miniatura.html + '</div>' +
               '<div class="cat-pedido-fila-info">' +
-                '<div class="cat-pedido-fila-codigo">' + esc(it.color.codigo) + '</div>' +
-                '<div class="cat-pedido-fila-nombre">' + esc(it.color.nombre || it.color.codigo) + '</div>' +
+                '<div class="cat-pedido-fila-codigo">' + esc(codigo) + '</div>' +
+                '<div class="cat-pedido-fila-nombre">' + esc(nombre) + '</div>' +
               '</div>' +
               '<div class="cat-pedido-fila-acciones">' +
                 '<div class="cat-card-stepper">' +
-                  '<button onclick="catCambiarCantidad(' + it.color.id + ',-1)" aria-label="Restar">' + ic('minus', 12) + '</button>' +
+                  '<button onclick="catCambiarCantidad(\'' + it.tipo + '\',' + it.entidad.id + ',-1)" aria-label="Restar">' + ic('minus', 12) + '</button>' +
                   '<span>' + it.cantidad + '</span>' +
-                  '<button ' + (it.cantidad >= (+it.color.stock || 0) ? 'disabled' : '') + ' onclick="catCambiarCantidad(' + it.color.id + ',1)" aria-label="Sumar">' + ic('plus', 12) + '</button>' +
+                  '<button ' + (it.cantidad >= it.stockMax ? 'disabled' : '') + ' onclick="catCambiarCantidad(\'' + it.tipo + '\',' + it.entidad.id + ',1)" aria-label="Sumar">' + ic('plus', 12) + '</button>' +
                 '</div>' +
-                '<button class="cat-pedido-fila-trash" onclick="catQuitar(' + it.color.id + ')" aria-label="Quitar">' + ic('trash', 15) + '</button>' +
+                '<button class="cat-pedido-fila-trash" onclick="catQuitar(\'' + it.tipo + '\',' + it.entidad.id + ')" aria-label="Quitar">' + ic('trash', 15) + '</button>' +
               '</div>' +
             '</div>';
           }).join('')
-        : '<div class="cat-pedido-vacio">' + ic('cart', 26) + '<div style="margin-top:8px">Todavía no agregaste ningún color</div></div>') +
+        : '<div class="cat-pedido-vacio">' + ic('cart', 26) + '<div style="margin-top:8px">Todavía no agregaste nada</div></div>') +
     '</div>' +
 
     '<div class="cat-datos">' +
@@ -635,23 +885,28 @@ function renderPedido() {
 }
 
 async function catHacerPedido() {
-  var ids = Object.keys(_catCarrito);
-  if (!ids.length) { toast('Agregá al menos un color', 'error'); return; }
+  var claves = Object.keys(_catCarrito);
+  if (!claves.length) { toast('Agregá al menos un producto', 'error'); return; }
   if (!_catForm.local.trim()) { toast('Falta el nombre del local', 'error'); return; }
   if (!_catForm.telefono.trim()) { toast('Falta el teléfono', 'error'); return; }
   if (!_catForm.localidad.trim()) { toast('Falta la localidad', 'error'); return; }
 
-  var items = ids.map(function (idStr) {
-    var id = +idStr;
-    var c = _catColores.find(function (x) { return x.id === id; });
-    return c ? { id: id, cantidad: _catCarrito[id] } : null;
-  }).filter(Boolean);
+  var items = claves.map(function (k) {
+    var it = _catCarrito[k];
+    return { tipo: it.tipo, id: it.id, cantidad: it.cantidad };
+  });
 
+  /* Revalidación de stock justo antes de mandar el pedido — cubre
+     colores directos, productos simples y packs (cuyo "stock" sale
+     de los colores que traen). El chequeo atómico final lo hace la
+     función del lado del servidor; esto es solo para avisar rápido
+     si algo cambió sin tener que esperar el error del servidor. */
   for (var i = 0; i < items.length; i++) {
-    var c = _catColores.find(function (x) { return x.id === items[i].id; });
-    if (!c || (+c.stock || 0) < items[i].cantidad) {
-      toast('Cambió el stock de ' + (c ? c.codigo : 'un color') + ': revisá tu pedido', 'error');
-      await cargarColores(false);
+    var stockAhora = catStock(items[i].tipo, items[i].id);
+    if (stockAhora < items[i].cantidad) {
+      var e = catEntidad(items[i].tipo, items[i].id);
+      toast('Cambió el stock de ' + (e ? (e.codigo || e.nombre) : 'un producto') + ': revisá tu pedido', 'error');
+      await cargarCatalogo(false);
       return;
     }
   }
@@ -665,10 +920,10 @@ async function catHacerPedido() {
     _catForm = { local: '', telefono: '', localidad: '', contacto: '', observaciones: '' };
     renderPedido();
     actualizarBadgeCarrito();
-    await cargarColores(false);
+    await cargarCatalogo(false);
   } catch (e) {
     toast(e.message, 'error');
-    await cargarColores(false);
+    await cargarCatalogo(false);
   } finally {
     _catEnviando = false;
     if (!_catConfirmacion) renderPedido();

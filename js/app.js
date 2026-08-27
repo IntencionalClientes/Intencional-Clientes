@@ -15,6 +15,7 @@ var _catBusca = '';
 var _catColecciones = {};      // colección -> true si está tildada
 var _catAcabados = {};
 var _catSoloDisponibles = false;
+var _catSoloOfertas = false;
 var _catPagina = 1;
 var CAT_POR_PAGINA = 40;
 var _catFiltrosVisibles = false;
@@ -179,6 +180,8 @@ function renderFiltros() {
     '<div class="cat-filtros-grupo">' +
       '<label class="cat-toggle"><input type="checkbox"' + (_catSoloDisponibles ? ' checked' : '') +
         ' onchange="catToggleDisponibles(this.checked)"/> Solo disponibles</label>' +
+      '<label class="cat-toggle"><input type="checkbox"' + (_catSoloOfertas ? ' checked' : '') +
+        ' onchange="catToggleOfertas(this.checked)"/> Solo en oferta</label>' +
     '</div>' +
 
     '<button class="cat-filtros-limpiar" onclick="catLimpiarFiltros()">Limpiar filtros</button>';
@@ -192,8 +195,9 @@ function catFiltroToggle(varName, valor) {
   renderCatalogo();
 }
 function catToggleDisponibles(v) { _catSoloDisponibles = v; _catPagina = 1; renderCatalogo(); }
+function catToggleOfertas(v) { _catSoloOfertas = v; _catPagina = 1; renderCatalogo(); }
 function catLimpiarFiltros() {
-  _catBusca = ''; _catColecciones = {}; _catAcabados = {}; _catSoloDisponibles = false; _catPagina = 1;
+  _catBusca = ''; _catColecciones = {}; _catAcabados = {}; _catSoloDisponibles = false; _catSoloOfertas = false; _catPagina = 1;
   renderBuscadorBar(); renderFiltros(); renderCatalogo();
 }
 
@@ -206,9 +210,16 @@ function catalogoFiltrado() {
     if (colSel && !_catColecciones[c.coleccion]) return false;
     if (acaSel && !_catAcabados[c.acabado]) return false;
     if (_catSoloDisponibles && (+c.stock || 0) <= 0) return false;
+    if (_catSoloOfertas && !c.en_oferta) return false;
     if (!q) return true;
     return normalizar(c.codigo).indexOf(q) !== -1 || normalizar(c.nombre).indexOf(q) !== -1;
   }).sort(function (a, b) {
+    /* Los colores en oferta aparecen primero (así se ven apenas se
+       entra, sin que el local tenga que buscarlos) — es la forma
+       de darles empuje a los que cuesta más vender. Dentro de cada
+       grupo, el orden es por código como siempre. */
+    var oa = a.en_oferta ? 0 : 1, ob = b.en_oferta ? 0 : 1;
+    if (oa !== ob) return oa - ob;
     return a.codigo.localeCompare(b.codigo, 'es', { numeric: true });
   });
 }
@@ -327,19 +338,19 @@ function cardColorHTML(c) {
   var disponible = stock > 0;
   var cantidad = _catCarrito[c.id] || 0;
 
-  /* La imagen principal de la tarjeta es la uña de muestra: es lo
-     que mejor muestra cómo queda puesto el color. Si el color
-     todavía no tiene foto de uña propia, se cae al frasco y, recién
-     si tampoco hay eso, a la uña con volumen dibujada. Cuando hay
-     además foto de frasco, se ve como una insignia chica abajo. */
-  var frasco = c.imagen_url
-    ? '<img class="cat-card-frasco-mini" src="' + esc(c.imagen_url) + '" alt=""/>'
+  /* La imagen principal de la tarjeta es el frasco (el producto que
+     se está pidiendo); la uña de muestra queda como insignia chica
+     para dar una idea del color puesto. Si el color todavía no
+     tiene foto de frasco, se cae a la uña y, recién si tampoco hay
+     eso, a la uña con volumen dibujada. */
+  var unaMini = c.imagen_una_url
+    ? '<img class="cat-card-mini-badge" src="' + esc(c.imagen_una_url) + '" alt=""/>'
     : '';
 
-  var vidriera = c.imagen_una_url
-    ? '<img class="cat-card-img-principal" src="' + esc(c.imagen_una_url) + '" alt="' + esc(c.nombre) + '"/>' + frasco
-    : (c.imagen_url
-        ? '<img class="cat-card-img-principal" src="' + esc(c.imagen_url) + '" alt="' + esc(c.nombre) + '"/>'
+  var vidriera = c.imagen_url
+    ? '<img class="cat-card-img-principal" src="' + esc(c.imagen_url) + '" alt="' + esc(c.nombre) + '"/>' + unaMini
+    : (c.imagen_una_url
+        ? '<img class="cat-card-img-principal" src="' + esc(c.imagen_una_url) + '" alt="' + esc(c.nombre) + '"/>'
         : nailSwatchHTML(c.hex, 'card' + c.id));
 
   var control = !disponible
@@ -355,6 +366,7 @@ function cardColorHTML(c) {
   return '<div class="cat-card' + (disponible ? '' : ' agotado') + '">' +
     '<button type="button" class="cat-card-vidriera' + ((c.imagen_una_url || c.imagen_url) ? '' : ' sin-foto') + '" ' +
       'onclick="catAbrirDetalle(' + c.id + ')" aria-label="Ver el detalle de ' + esc(c.nombre || c.codigo) + '">' + vidriera +
+      (c.en_oferta ? '<span class="cat-card-oferta">Oferta</span>' : '') +
       '<span class="cat-card-estado"><span class="pin pin-' + (disponible ? 'ok' : 'danger') + '">' +
         (disponible ? 'Disponible' : 'Sin stock') + '</span></span>' +
     '</button>' +
@@ -383,11 +395,11 @@ function catAbrirDetalle(id) {
   if (!c) return;
 
   var imgs = [];
-  if (c.imagen_una_url) {
-    imgs.push({ etiq: 'Uña de muestra', html: '<img src="' + esc(c.imagen_una_url) + '" alt=""/>' });
-  }
   if (c.imagen_url) {
     imgs.push({ etiq: 'Frasco', html: '<img src="' + esc(c.imagen_url) + '" alt="' + esc(c.nombre || c.codigo) + '"/>' });
+  }
+  if (c.imagen_una_url) {
+    imgs.push({ etiq: 'Uña de muestra', html: '<img src="' + esc(c.imagen_una_url) + '" alt=""/>' });
   }
   if (!imgs.length) {
     imgs.push({ etiq: 'Uña de muestra', html: nailSwatchHTML(c.hex, 'det' + c.id) });

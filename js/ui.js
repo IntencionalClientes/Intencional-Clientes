@@ -20,6 +20,19 @@ function esc(v) {
 function plata(n) {
   return '$' + (+n || 0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
+
+/* ── Texto con *negrita*, mayúsculas y saltos de línea tal cual ──
+   La descripción de un color se carga libre desde el panel (puede
+   tener MAYÚSCULAS, varios renglones, y una palabra entre
+   *asteriscos* para negrita). Por default el HTML colapsa todo eso
+   a una sola línea — acá se arma a mano: se escapa primero (por
+   seguridad) y recién después se interpretan *bold* y los saltos
+   de línea, nunca al revés. */
+function textoConFormato(s) {
+  var e = esc(s || '');
+  e = e.replace(/\*([^\n*]+)\*/g, '<strong>$1</strong>');
+  return e.replace(/\n/g, '<br>');
+}
 function plataCorta(n) {
   var v = +n || 0;
   if (Math.abs(v) >= 1000000) return '$' + (v / 1000000).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + 'M';

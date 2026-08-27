@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   CATÁLOGO B2B — INTENCIONAL
+   CATÁLOGO — INTENCIONAL
    Catálogo → seleccionar colores → revisar pedido → datos del
    local → hacer pedido → confirmación. Todo el stock que se ve
    acá es el mismo de la tabla "colores" que usa el panel de
@@ -73,7 +73,7 @@ function renderShell() {
     '<div class="cat-top" id="cat-top">' +
       '<header class="cat-header">' +
         '<div class="cat-marca"><img src="' + LOGO_INTENCIONAL + '" alt=""/>' +
-          '<div><div class="cat-marca-nombre">Intencional</div><div class="cat-marca-sub">Esmaltes · Catálogo B2B</div></div>' +
+          '<div><div class="cat-marca-nombre">Intencional</div><div class="cat-marca-sub">Esmaltes · Catálogo</div></div>' +
         '</div>' +
         '<nav class="cat-nav">' +
           '<button class="cat-nav-item" id="cat-tab-catalogo" onclick="catIrA(\'catalogo\')" aria-current="page">Catálogo</button>' +
@@ -333,6 +333,23 @@ function cartThumbHTML(c) {
   return { clase: ' cat-nail-swatch-wrap', html: nailSwatchHTML(c.hex, 'cart' + c.id) };
 }
 
+/* Precio de lista, y si el color está en oferta, el precio de
+   oferta al lado (tachando el de lista) más la letra chica: desde
+   qué cantidad vale y cualquier aclaración que se haya cargado.
+   Sin precio de lista cargado, no se muestra nada — no se inventa
+   ningún número. */
+function precioHTML(c) {
+  var lista = +c.precio || 0;
+  if (!lista) return '';
+  var oferta = bool(c.en_oferta) && c.precio_oferta != null && +c.precio_oferta > 0 ? +c.precio_oferta : 0;
+  if (!oferta) return '<span class="cat-precio-lista">' + plata(lista) + '</span>';
+
+  var pack = +c.oferta_pack || 0;
+  return '<span class="cat-precio-tachado">' + plata(lista) + '</span> ' +
+    '<span class="cat-precio-oferta">' + plata(oferta) + (pack ? ' <span class="cat-precio-pack">c/u desde ' + pack + ' u.</span>' : '') + '</span>' +
+    (c.oferta_nota ? '<div class="cat-precio-nota">' + esc(c.oferta_nota) + '</div>' : '');
+}
+
 function cardColorHTML(c) {
   var stock = +c.stock || 0;
   var disponible = stock > 0;
@@ -374,6 +391,7 @@ function cardColorHTML(c) {
       '<div class="cat-card-codigo">' + esc(c.codigo) + '</div>' +
       '<div class="cat-card-nombre">' + esc(c.nombre || c.codigo) + '</div>' +
       '<div class="cat-card-tags">' + [c.coleccion, c.acabado].filter(Boolean).map(esc).join(' · ') + '</div>' +
+      (precioHTML(c) ? '<div class="cat-card-precio">' + precioHTML(c) + '</div>' : '') +
       '<div class="cat-card-pie">' +
         (disponible ? '<div class="cat-card-stock">' + stock + ' u. disp.</div>' : '<div class="cat-card-stock agotado">Sin stock</div>') +
         control +
@@ -435,8 +453,10 @@ function catDetalleHTML() {
 
   var tags = [c.coleccion, c.acabado].filter(Boolean).map(esc).join(' · ');
   var desc = c.descripcion
-    ? '<p class="cat-detalle-desc">' + esc(c.descripcion) + '</p>'
+    ? '<p class="cat-detalle-desc">' + textoConFormato(c.descripcion) + '</p>'
     : (tags ? '<p class="cat-detalle-desc cat-detalle-desc-generica">' + tags + '</p>' : '');
+
+  var precio = precioHTML(c);
 
   var controlCant = !disponible
     ? '<div class="cat-detalle-sinstock">' + ic('alert', 14) + ' Sin stock por el momento</div>'
@@ -454,6 +474,7 @@ function catDetalleHTML() {
       carrusel +
       '<div class="cat-detalle-codigo">' + esc(c.codigo) + '</div>' +
       '<h2 class="cat-detalle-nombre">' + esc(c.nombre || c.codigo) + '</h2>' +
+      (precio ? '<div class="cat-detalle-precio">' + precio + '</div>' : '') +
       desc +
       controlCant +
       (disponible ? '<button type="button" class="btn btn-primario btn-bloque cat-detalle-agregar" onclick="catDetalleAgregar()">' + ic('plus', 15) + ' Agregar al pedido</button>' : '') +

@@ -229,6 +229,15 @@ body{background:var(--surface);overflow-x:visible;overflow-y:visible}
 .cat-detalle-nombre{font-family:var(--display);font-size:21px;font-weight:600;margin:2px 0 8px;line-height:1.15}
 .cat-detalle-desc{font-size:13.5px;color:var(--text2);line-height:1.55;margin-bottom:14px}
 .cat-detalle-desc-generica{font-family:var(--acento);font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+
+/* ── Precio ───────────────────────────────────────────────── */
+.cat-card-precio{margin-top:5px;font-size:12.5px}
+.cat-detalle-precio{margin:6px 0 14px;font-size:15px}
+.cat-precio-lista{font-weight:700;color:var(--text)}
+.cat-precio-tachado{color:var(--muted);text-decoration:line-through;font-size:.9em}
+.cat-precio-oferta{font-weight:700;color:var(--rose)}
+.cat-precio-pack{font-weight:400;font-size:.78em;color:var(--muted)}
+.cat-precio-nota{font-family:var(--acento);font-size:10px;letter-spacing:.5px;color:var(--muted);margin-top:2px}
 .cat-detalle-cantidad{margin-bottom:14px}
 .cat-detalle-stepper{width:fit-content;margin-top:4px}
 .cat-detalle-stepper button{width:30px;height:30px}

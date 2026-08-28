@@ -31,17 +31,29 @@ body{background:var(--surface);overflow-x:visible;overflow-y:visible}
    lenguaje visual que en el panel de gestión. Viven pegadas
    abajo del buscador, dentro del mismo bloque sticky. */
 .cat-tipo-tabs-bar{padding:0 22px 12px}
+/* Los 4 tipos entran siempre en un mismo renglón, sin deslizar
+   hacia los costados — en el celular se usa el rótulo abreviado si
+   hace falta (mismo criterio que el panel de gestión). */
 .tipo-tabs{
   display:flex;gap:4px;background:var(--subtle);border:1px solid var(--border);border-radius:30px;
-  padding:3px;max-width:100%;overflow-x:auto;width:fit-content;
+  padding:3px;max-width:100%;width:fit-content;
 }
 .tipo-tab{
-  display:flex;align-items:center;gap:6px;padding:8px 15px;border-radius:24px;white-space:nowrap;
+  display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 15px;border-radius:24px;white-space:nowrap;
   font-size:12.5px;font-weight:600;color:var(--text2);flex-shrink:0;background:none;border:none;cursor:pointer;
   -webkit-tap-highlight-color:transparent;
 }
 .tipo-tab:hover{color:var(--rose)}
 .tipo-tab.activo{background:var(--bg);color:var(--rose);box-shadow:var(--sombra)}
+.tipo-tab-corta{display:none}
+
+@media (max-width:640px){
+  .cat-tipo-tabs-bar{padding:0 12px 12px}
+  .tipo-tabs{width:100%;gap:2px;padding:3px}
+  .tipo-tab{flex:1;padding:7px 2px;font-size:9.5px;gap:3px}
+  .tipo-tab-full{display:none}
+  .tipo-tab-corta{display:inline}
+}
 .cat-marca{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .cat-marca img{width:34px;height:34px;object-fit:contain}
 .cat-marca-nombre{font-family:var(--display);font-size:18px;font-weight:600;line-height:1.1}

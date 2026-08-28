@@ -36,10 +36,10 @@ var _catForm = { local: '', telefono: '', localidad: '', contacto: '', observaci
 /* Pestañas de tipo de producto — todo junto con un filtro, como en
    el panel de gestión, en vez de una sección aparte por tipo. */
 var VISTAS_CATALOGO = [
-  { id: 'tradicional',    etiqueta: 'Esmaltes',          icono: 'droplet',  singular: 'color',    plural: 'colores' },
-  { id: 'semipermanente', etiqueta: 'Semipermanentes',   icono: 'sparkles', singular: 'color',    plural: 'colores' },
-  { id: 'producto',       etiqueta: 'Cremas y colágeno', icono: 'pill',     singular: 'producto', plural: 'productos' },
-  { id: 'pack',           etiqueta: 'Packs',             icono: 'box',      singular: 'pack',     plural: 'packs' }
+  { id: 'pack',           etiqueta: 'Packs',             corta: 'Packs',      icono: 'box',      singular: 'pack',     plural: 'packs' },
+  { id: 'tradicional',    etiqueta: 'Esmaltes',          corta: 'Esmaltes',   icono: 'droplet',  singular: 'color',    plural: 'colores' },
+  { id: 'semipermanente', etiqueta: 'Semipermanentes',   corta: 'Semiperm.',  icono: 'sparkles', singular: 'color',    plural: 'colores' },
+  { id: 'producto',       etiqueta: 'Cremas y colágeno', corta: 'Cremas',     icono: 'pill',     singular: 'producto', plural: 'productos' }
 ];
 var _catTipo = 'tradicional';
 
@@ -107,9 +107,9 @@ function catActivo(tipo, id) {
 }
 
 /* El "stock" de un pack no es un número propio: es lo máximo que se
-   puede armar con el stock actual de los colores que trae (el
-   mínimo entre todos, cada uno dividido por cuántas unidades de ese
-   color lleva el pack). */
+   puede armar con el stock actual de lo que trae (el mínimo entre
+   todos sus renglones, cada uno dividido por cuántas unidades lleva
+   el pack) — puede traer colores Y productos simples mezclados. */
 function catStock(tipo, id) {
   if (tipo === 'producto') { var p = catEntidad('producto', id); return p ? (+p.stock || 0) : 0; }
   if (tipo === 'pack') {
@@ -117,8 +117,14 @@ function catStock(tipo, id) {
     if (!items.length) return 0;
     var min = Infinity;
     items.forEach(function (it) {
-      var c = _catColores.find(function (x) { return x.id === it.color_id; });
-      var disp = c ? (+c.stock || 0) : 0;
+      var disp;
+      if (it.tipo_item === 'producto') {
+        var prod = _catProductos.find(function (x) { return x.id === it.producto_id; });
+        disp = prod ? (+prod.stock || 0) : 0;
+      } else {
+        var c = _catColores.find(function (x) { return x.id === it.color_id; });
+        disp = c ? (+c.stock || 0) : 0;
+      }
       min = Math.min(min, Math.floor(disp / (+it.cantidad || 1)));
     });
     return Math.max(0, min);
@@ -176,7 +182,10 @@ function renderTipoTabs() {
   cont.innerHTML = '<div class="tipo-tabs">' +
     VISTAS_CATALOGO.map(function (v) {
       return '<button class="tipo-tab' + (v.id === _catTipo ? ' activo' : '') + '" onclick="catCambiarTipo(\'' + v.id + '\')">' +
-        ic(v.icono, 15) + '<span>' + esc(v.etiqueta) + '</span></button>';
+        ic(v.icono, 15) +
+        '<span class="tipo-tab-full">' + esc(v.etiqueta) + '</span>' +
+        '<span class="tipo-tab-corta">' + esc(v.corta) + '</span>' +
+      '</button>';
     }).join('') +
   '</div>';
 }
@@ -627,14 +636,22 @@ function cardPackHTML(pk) {
   '</div>';
 }
 
-/* Qué colores trae un pack, para mostrarlo en su ficha de detalle. */
+/* Qué trae un pack (colores y/o productos), para mostrarlo en su
+   ficha de detalle. */
 function packContenidoHTML(packId) {
   var items = _catPackItems.filter(function (it) { return it.pack_id === packId; });
   if (!items.length) return '';
   return '<div class="cat-pack-contenido"><div class="campo-etiq">Este pack incluye</div>' +
     items.map(function (it) {
-      var c = _catColores.find(function (x) { return x.id === it.color_id; });
-      return '<div class="cat-pack-fila"><span>' + esc(c ? (c.codigo + (c.nombre ? ' — ' + c.nombre : '')) : 'Color eliminado') + '</span><span>x' + it.cantidad + '</span></div>';
+      var etiqueta;
+      if (it.tipo_item === 'producto') {
+        var prod = _catProductos.find(function (x) { return x.id === it.producto_id; });
+        etiqueta = prod ? prod.nombre : 'Producto eliminado';
+      } else {
+        var c = _catColores.find(function (x) { return x.id === it.color_id; });
+        etiqueta = c ? (c.codigo + (c.nombre ? ' — ' + c.nombre : '')) : 'Color eliminado';
+      }
+      return '<div class="cat-pack-fila"><span>' + esc(etiqueta) + '</span><span>x' + it.cantidad + '</span></div>';
     }).join('') +
   '</div>';
 }

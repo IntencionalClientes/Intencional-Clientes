@@ -44,7 +44,11 @@ body{background:var(--surface);overflow-x:visible;overflow-y:visible}
   -webkit-tap-highlight-color:transparent;
 }
 .tipo-tab:hover{color:var(--rose)}
-.tipo-tab.activo{background:var(--bg);color:var(--rose);box-shadow:var(--sombra)}
+/* Mismo criterio que el panel de gestión: un relleno sólido de
+   color marca se distingue del resto de las pestañas en modo claro
+   Y oscuro, sin depender de que --bg y --subtle contrasten entre
+   sí (en oscuro son casi el mismo tono). */
+.tipo-tab.activo{background:var(--rose);color:var(--bg);box-shadow:var(--sombra)}
 .tipo-tab-corta{display:none}
 
 @media (max-width:640px){

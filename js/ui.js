@@ -211,24 +211,33 @@ function cerrarModal() {
   soltarFondo();
 }
 
-/* ── Bloquear el fondo mientras hay un modal ─────────────────
+/* ── Bloquear el fondo mientras hay un modal o el carrito ─────
    En iOS no alcanza con overflow:hidden: hay que fijar el body
    y guardar dónde estaba el scroll para devolverlo al cerrar.
-   ────────────────────────────────────────────────────────── */
+   Es un contador (no un simple sí/no) porque el modal de detalle
+   y el panel del carrito pueden llegar a estar abiertos los dos a
+   la vez — si eso pasa, no hay que destrabar el fondo hasta que
+   se cierren AMBOS. ────────────────────────────────────────── */
 var _scrollGuardado = 0;
+var _bloqueosFondo = 0;
 
 function bloquearFondo() {
-  if (document.body.classList.contains('fondo-quieto')) return;
-  _scrollGuardado = window.scrollY || document.documentElement.scrollTop || 0;
-  document.body.classList.add('fondo-quieto');
-  document.body.style.top = '-' + _scrollGuardado + 'px';
+  if (_bloqueosFondo === 0) {
+    _scrollGuardado = window.scrollY || document.documentElement.scrollTop || 0;
+    document.body.classList.add('fondo-quieto');
+    document.body.style.top = '-' + _scrollGuardado + 'px';
+  }
+  _bloqueosFondo++;
 }
 
 function soltarFondo() {
-  if (!document.body.classList.contains('fondo-quieto')) return;
-  document.body.classList.remove('fondo-quieto');
-  document.body.style.top = '';
-  window.scrollTo(0, _scrollGuardado);
+  if (_bloqueosFondo === 0) return;
+  _bloqueosFondo--;
+  if (_bloqueosFondo === 0) {
+    document.body.classList.remove('fondo-quieto');
+    document.body.style.top = '';
+    window.scrollTo(0, _scrollGuardado);
+  }
 }
 
 document.addEventListener('keydown', function (e) {

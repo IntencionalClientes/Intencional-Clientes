@@ -41,7 +41,7 @@ var VISTAS_CATALOGO = [
   { id: 'semipermanente', etiqueta: 'Semipermanentes',   corta: 'Semiperm.',  icono: 'sparkles', singular: 'color',    plural: 'colores' },
   { id: 'producto',       etiqueta: 'Cremas y colágeno', corta: 'Cremas',     icono: 'pill',     singular: 'producto', plural: 'productos' }
 ];
-var _catTipo = 'tradicional';
+var _catTipo = 'pack';
 
 function catVistaActual() {
   return VISTAS_CATALOGO.filter(function (v) { return v.id === _catTipo; })[0] || VISTAS_CATALOGO[0];
@@ -825,6 +825,7 @@ function catAbrirPedido() {
   porId('cat-panel').className = 'cat-pedido-panel visible';
   var fab = porId('cat-fab');
   if (fab) fab.className = 'cat-fab-carrito oculto';
+  bloquearFondo();
 }
 function catCerrarPedido() {
   _catPedidoVisible = false;
@@ -832,6 +833,7 @@ function catCerrarPedido() {
   porId('cat-panel').className = 'cat-pedido-panel';
   var fab = porId('cat-fab');
   if (fab) fab.className = 'cat-fab-carrito';
+  soltarFondo();
 }
 
 function catActualizarCampo(campo, valor) { _catForm[campo] = valor; }
